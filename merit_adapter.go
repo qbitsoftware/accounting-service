@@ -2,7 +2,9 @@ package accounting
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -48,6 +50,8 @@ func buildRowsAndTaxes(lines []CreateInvoiceLineInput) ([]merit.InvoiceRow, []me
 			Item: merit.ItemRef{
 				Code:        line.Code,
 				Description: line.Description,
+				Type:        line.Type,
+				UOMName:     line.UOMName,
 			},
 			Quantity:      line.Quantity,
 			Price:         line.UnitPrice,
@@ -117,6 +121,26 @@ func (p *meritProvider) GetInvoice(ctx context.Context, id string) (*Invoice, er
 		return nil, p.wrapError("GetInvoice", err)
 	}
 	return mapInvoiceDetail(detail), nil
+}
+
+func (p *meritProvider) GetInvoicePDF(ctx context.Context, id string, deliveryNote bool) (*InvoicePDF, error) {
+	result, err := p.client.GetInvoicePDF(ctx, merit.GetInvoicePDFParams{
+		ID:        id,
+		DelivNote: deliveryNote,
+	})
+	if err != nil {
+		return nil, p.wrapError("GetInvoicePDF", err)
+	}
+
+	content, err := base64.StdEncoding.DecodeString(result.FileContent)
+	if err != nil {
+		return nil, p.wrapError("GetInvoicePDF", fmt.Errorf("decode pdf: %w", err))
+	}
+
+	return &InvoicePDF{
+		FileName:    result.FileName,
+		FileContent: content,
+	}, nil
 }
 
 func (p *meritProvider) ListInvoices(ctx context.Context, input ListInvoicesInput) ([]Invoice, error) {

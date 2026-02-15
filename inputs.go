@@ -30,6 +30,8 @@ type CreateInvoiceLineInput struct {
 	UnitPrice   decimal.Decimal
 	TaxID       string
 	AccountCode string
+	Type        *int   // Item type: 1=product, 2=package, 3=service (default: 3)
+	UOMName     string // Unit of measure (e.g., "pcs", "hrs", "kg")
 }
 
 type CreateCustomerInput struct {

@@ -221,6 +221,12 @@ type CreateInvoiceResponse struct {
 	NewCustomer bool   `json:"NewCustomer"`
 }
 
+// GetInvoicePDFParams specifies parameters for getting an invoice PDF.
+type GetInvoicePDFParams struct {
+	ID        string `json:"Id"`
+	DelivNote bool   `json:"DelivNote,omitempty"` // If true, returns delivery note without prices
+}
+
 // DeleteInvoiceParams specifies parameters for deleting a sales invoice.
 type DeleteInvoiceParams struct {
 	ID string `json:"Id"`

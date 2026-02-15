@@ -62,6 +62,12 @@ type InvoicePayment struct {
 	PaymentID string
 }
 
+// InvoicePDF represents a PDF document for an invoice.
+type InvoicePDF struct {
+	FileName    string // Name of the PDF file
+	FileContent []byte // Raw PDF bytes (decoded from base64)
+}
+
 type Customer struct {
 	ID          string
 	Name        string

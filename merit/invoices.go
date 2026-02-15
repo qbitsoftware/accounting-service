@@ -30,6 +30,15 @@ func (c *Client) CreateInvoice(ctx context.Context, req CreateInvoiceRequest) (*
 	return &result, nil
 }
 
+// GetInvoicePDF retrieves the PDF for a sales invoice.
+func (c *Client) GetInvoicePDF(ctx context.Context, params GetInvoicePDFParams) (*Attachment, error) {
+	var result Attachment
+	if err := c.post(ctx, "v2/getsalesinvpdf", params, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // DeleteInvoice deletes a sales invoice by ID.
 func (c *Client) DeleteInvoice(ctx context.Context, params DeleteInvoiceParams) error {
 	return c.post(ctx, "v1/deleteinvoice", params, nil)

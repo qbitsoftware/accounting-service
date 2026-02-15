@@ -17,6 +17,10 @@ func (s *InvoiceService) Get(ctx context.Context, id string) (*Invoice, error) {
 	return s.provider.GetInvoice(ctx, id)
 }
 
+func (s *InvoiceService) GetPDF(ctx context.Context, id string, deliveryNote bool) (*InvoicePDF, error) {
+	return s.provider.GetInvoicePDF(ctx, id, deliveryNote)
+}
+
 func (s *InvoiceService) List(ctx context.Context, input ListInvoicesInput) ([]Invoice, error) {
 	return s.provider.ListInvoices(ctx, input)
 }
