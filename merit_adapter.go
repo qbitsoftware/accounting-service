@@ -43,7 +43,6 @@ func (p *meritProvider) TestConnection(ctx context.Context) error {
 
 func buildRowsAndTaxes(lines []CreateInvoiceLineInput) ([]merit.InvoiceRow, []merit.TaxAmountEntry) {
 	rows := make([]merit.InvoiceRow, len(lines))
-	taxAmounts := make(map[string]decimal.Decimal)
 
 	for i, line := range lines {
 		rows[i] = merit.InvoiceRow{
@@ -58,19 +57,10 @@ func buildRowsAndTaxes(lines []CreateInvoiceLineInput) ([]merit.InvoiceRow, []me
 			TaxID:         line.TaxID,
 			GLAccountCode: line.AccountCode,
 		}
-		amount := line.Quantity.Mul(line.UnitPrice)
-		taxAmounts[line.TaxID] = taxAmounts[line.TaxID].Add(amount)
 	}
 
-	taxes := make([]merit.TaxAmountEntry, 0, len(taxAmounts))
-	for taxID, amount := range taxAmounts {
-		taxes = append(taxes, merit.TaxAmountEntry{
-			TaxID:  taxID,
-			Amount: amount,
-		})
-	}
-
-	return rows, taxes
+	// Return empty TaxAmount array - Merit will calculate tax from line TaxIDs
+	return rows, []merit.TaxAmountEntry{}
 }
 
 func (p *meritProvider) CreateInvoice(ctx context.Context, input CreateInvoiceInput) (*Invoice, error) {
