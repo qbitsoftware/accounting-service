@@ -19,6 +19,7 @@ type CreateInvoiceInput struct {
 	RefNo               string
 	Currency            string
 	Lines               []CreateInvoiceLineInput
+	TotalAmount         decimal.Decimal // Total invoice amount (for validation)
 	Comment             string
 	FooterComment       string
 }

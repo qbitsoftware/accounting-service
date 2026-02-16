@@ -83,6 +83,7 @@ func (p *meritProvider) CreateInvoice(ctx context.Context, input CreateInvoiceIn
 		CurrencyCode:  input.Currency,
 		InvoiceRow:    rows,
 		TaxAmount:     taxes,
+		TotalAmount:   input.TotalAmount,
 		Hcomment:      input.Comment,
 		Fcomment:      input.FooterComment,
 	}
