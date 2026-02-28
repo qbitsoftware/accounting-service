@@ -136,8 +136,8 @@ func (p *meritProvider) GetInvoicePDF(ctx context.Context, id string, deliveryNo
 
 func (p *meritProvider) ListInvoices(ctx context.Context, input ListInvoicesInput) ([]Invoice, error) {
 	items, err := p.client.ListInvoices(ctx, merit.ListInvoicesParams{
-		PeriodStart: input.PeriodStart,
-		PeriodEnd:   input.PeriodEnd,
+		PeriodStart: formatDate(input.PeriodStart),
+		PeriodEnd:   formatDate(input.PeriodEnd),
 	})
 	if err != nil {
 		return nil, p.wrapError("ListInvoices", err)
@@ -279,8 +279,8 @@ func (p *meritProvider) CreatePayment(ctx context.Context, input CreatePaymentIn
 
 func (p *meritProvider) ListPayments(ctx context.Context, input ListPaymentsInput) ([]Payment, error) {
 	items, err := p.client.ListPayments(ctx, merit.ListPaymentsParams{
-		PeriodStart: input.PeriodStart,
-		PeriodEnd:   input.PeriodEnd,
+		PeriodStart: formatDate(input.PeriodStart),
+		PeriodEnd:   formatDate(input.PeriodEnd),
 	})
 	if err != nil {
 		return nil, p.wrapError("ListPayments", err)
@@ -471,8 +471,8 @@ func (p *meritProvider) GetPurchase(ctx context.Context, id string) (*PurchaseIn
 
 func (p *meritProvider) ListPurchases(ctx context.Context, input ListPurchasesInput) ([]PurchaseInvoice, error) {
 	items, err := p.client.ListPurchases(ctx, merit.ListPurchasesParams{
-		PeriodStart: input.PeriodStart,
-		PeriodEnd:   input.PeriodEnd,
+		PeriodStart: formatDate(input.PeriodStart),
+		PeriodEnd:   formatDate(input.PeriodEnd),
 	})
 	if err != nil {
 		return nil, p.wrapError("ListPurchases", err)
@@ -563,8 +563,8 @@ func (p *meritProvider) CustomerDebts(ctx context.Context, customerName string, 
 
 func (p *meritProvider) ListInvoicesSince(ctx context.Context, since time.Time, until time.Time) ([]Invoice, error) {
 	items, err := p.client.ListInvoices(ctx, merit.ListInvoicesParams{
-		PeriodStart: since,
-		PeriodEnd:   until,
+		PeriodStart: formatDate(since),
+		PeriodEnd:   formatDate(until),
 		DateType:    intPtr(1), // 1 = changed date
 	})
 	if err != nil {
@@ -580,8 +580,8 @@ func (p *meritProvider) ListInvoicesSince(ctx context.Context, since time.Time, 
 
 func (p *meritProvider) ListPaymentsSince(ctx context.Context, since time.Time, until time.Time) ([]Payment, error) {
 	items, err := p.client.ListPayments(ctx, merit.ListPaymentsParams{
-		PeriodStart: since,
-		PeriodEnd:   until,
+		PeriodStart: formatDate(since),
+		PeriodEnd:   formatDate(until),
 		DateType:    intPtr(1), // 1 = changed date
 	})
 	if err != nil {

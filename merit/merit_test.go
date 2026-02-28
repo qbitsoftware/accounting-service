@@ -191,8 +191,8 @@ func TestListInvoices(t *testing.T) {
 	defer srv.Close()
 
 	result, err := client.ListInvoices(context.Background(), ListInvoicesParams{
-		PeriodStart: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
-		PeriodEnd:   time.Date(2025, 3, 31, 0, 0, 0, 0, time.UTC),
+		PeriodStart: "20250101",
+		PeriodEnd:   "20250331",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -387,8 +387,8 @@ func TestListPayments(t *testing.T) {
 	defer srv.Close()
 
 	result, err := client.ListPayments(context.Background(), ListPaymentsParams{
-		PeriodStart: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
-		PeriodEnd:   time.Date(2025, 3, 31, 0, 0, 0, 0, time.UTC),
+		PeriodStart: "20250101",
+		PeriodEnd:   "20250331",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -470,8 +470,8 @@ func TestListPurchases(t *testing.T) {
 	defer srv.Close()
 
 	result, err := client.ListPurchases(context.Background(), ListPurchasesParams{
-		PeriodStart: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
-		PeriodEnd:   time.Date(2025, 3, 31, 0, 0, 0, 0, time.UTC),
+		PeriodStart: "20250101",
+		PeriodEnd:   "20250331",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

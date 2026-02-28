@@ -1,8 +1,6 @@
 package merit
 
 import (
-	"time"
-
 	"github.com/shopspring/decimal"
 )
 
@@ -59,10 +57,10 @@ const (
 
 // ListInvoicesParams specifies parameters for listing sales invoices.
 type ListInvoicesParams struct {
-	PeriodStart time.Time `json:"PeriodStart"`
-	PeriodEnd   time.Time `json:"PeriodEnd"`
-	UnPaid      bool      `json:"UnPaid,omitempty"`
-	DateType    *int      `json:"DateType,omitempty"` // 0=document date, 1=changed date
+	PeriodStart string `json:"PeriodStart"`
+	PeriodEnd   string `json:"PeriodEnd"`
+	UnPaid      bool   `json:"UnPaid,omitempty"`
+	DateType    *int   `json:"DateType,omitempty"` // 0=document date, 1=changed date
 }
 
 // InvoiceListItem represents a sales invoice in list results.
@@ -236,9 +234,9 @@ type DeleteInvoiceParams struct {
 
 // ListPurchasesParams specifies parameters for listing purchase invoices.
 type ListPurchasesParams struct {
-	PeriodStart time.Time `json:"PeriodStart"`
-	PeriodEnd   time.Time `json:"PeriodEnd"`
-	DateType    *int      `json:"DateType,omitempty"` // 0=document date, 1=changed date
+	PeriodStart string `json:"PeriodStart"`
+	PeriodEnd   string `json:"PeriodEnd"`
+	DateType    *int   `json:"DateType,omitempty"` // 0=document date, 1=changed date
 }
 
 // PurchaseListItem represents a purchase invoice in list results.
@@ -731,11 +729,11 @@ type UpdateItemRequest struct {
 
 // ListPaymentsParams specifies parameters for listing payments.
 type ListPaymentsParams struct {
-	PeriodStart time.Time `json:"PeriodStart"`
-	PeriodEnd   time.Time `json:"PeriodEnd"`
-	PaymentType *int      `json:"PaymentType,omitempty"`
-	BankID      string    `json:"BankId,omitempty"`
-	DateType    *int      `json:"DateType,omitempty"` // 0=document date, 1=changed date
+	PeriodStart string `json:"PeriodStart"`
+	PeriodEnd   string `json:"PeriodEnd"`
+	PaymentType *int   `json:"PaymentType,omitempty"`
+	BankID      string `json:"BankId,omitempty"`
+	DateType    *int   `json:"DateType,omitempty"` // 0=document date, 1=changed date
 }
 
 // PaymentListItem represents a payment in list results.
