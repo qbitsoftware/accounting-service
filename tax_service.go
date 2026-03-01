@@ -14,3 +14,8 @@ func (s *TaxService) List(ctx context.Context) ([]Tax, error) {
 func (s *TaxService) ListAccounts(ctx context.Context) ([]Account, error) {
 	return s.provider.ListAccounts(ctx)
 }
+
+// ListDimensions returns available projects, cost centers, and departments from the provider.
+func (s *TaxService) ListDimensions(ctx context.Context) (*DimensionList, error) {
+	return s.provider.ListDimensions(ctx)
+}

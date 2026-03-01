@@ -171,3 +171,18 @@ type BatchResult struct {
 	Err     error
 	Index   int
 }
+
+// Dimension represents a Merit dimension entry (project, cost center, or department).
+type Dimension struct {
+	Code    string
+	Name    string
+	DimID   int    // Merit dimension type ID (from v2/getdimensions)
+	ValueID string // Merit dimension value GUID (from v2/getdimensions)
+}
+
+// DimensionList holds all available dimension reference data from Merit.
+type DimensionList struct {
+	Projects    []Dimension
+	CostCenters []Dimension
+	Departments []Dimension
+}

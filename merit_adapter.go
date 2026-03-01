@@ -52,10 +52,22 @@ func buildRowsAndTaxes(lines []CreateInvoiceLineInput) ([]merit.InvoiceRow, []me
 				Type:        line.Type,
 				UOMName:     line.UOMName,
 			},
-			Quantity:      line.Quantity,
-			Price:         line.UnitPrice,
-			TaxID:         line.TaxID,
-			GLAccountCode: line.AccountCode,
+			Quantity:       line.Quantity,
+			Price:          line.UnitPrice,
+			TaxID:          line.TaxID,
+			GLAccountCode:  line.AccountCode,
+			ProjectCode:    line.ProjectCode,
+			CostCenterCode: line.CostCenterCode,
+		}
+
+		// Populate v2 Dimensions array for proper dimension assignment
+		for _, dim := range line.Dimensions {
+			dimID := dim.DimID
+			rows[i].Dimensions = append(rows[i].Dimensions, merit.DimensionRef{
+				DimID:      &dimID,
+				DimValueID: dim.DimValueID,
+				DimCode:    dim.DimCode,
+			})
 		}
 	}
 
@@ -526,6 +538,67 @@ func (p *meritProvider) ListAccounts(ctx context.Context) ([]Account, error) {
 		}
 	}
 	return accounts, nil
+}
+
+func (p *meritProvider) ListDimensions(ctx context.Context) (*DimensionList, error) {
+	projects, err := p.client.ListProjects(ctx)
+	if err != nil {
+		return nil, p.wrapError("ListProjects", err)
+	}
+
+	costCenters, err := p.client.ListCostCenters(ctx)
+	if err != nil {
+		return nil, p.wrapError("ListCostCenters", err)
+	}
+
+	departments, err := p.client.ListDepartments(ctx)
+	if err != nil {
+		return nil, p.wrapError("ListDepartments", err)
+	}
+
+	// Fetch v2 dimensions to get DimId and ValueId (GUID) for each entry
+	dimValues, _ := p.client.GetDimensions(ctx, false)
+	dimLookup := make(map[string]struct {
+		DimID   int
+		ValueID string
+	})
+	for _, dv := range dimValues {
+		dimLookup[dv.Code] = struct {
+			DimID   int
+			ValueID string
+		}{DimID: dv.DimID, ValueID: dv.ID}
+	}
+
+	result := &DimensionList{
+		Projects:    make([]Dimension, len(projects)),
+		CostCenters: make([]Dimension, len(costCenters)),
+		Departments: make([]Dimension, len(departments)),
+	}
+	for i, p := range projects {
+		dim := Dimension{Code: p.Code, Name: p.Name}
+		if entry, ok := dimLookup[p.Code]; ok {
+			dim.DimID = entry.DimID
+			dim.ValueID = entry.ValueID
+		}
+		result.Projects[i] = dim
+	}
+	for i, cc := range costCenters {
+		dim := Dimension{Code: cc.Code, Name: cc.Name}
+		if entry, ok := dimLookup[cc.Code]; ok {
+			dim.DimID = entry.DimID
+			dim.ValueID = entry.ValueID
+		}
+		result.CostCenters[i] = dim
+	}
+	for i, d := range departments {
+		dim := Dimension{Code: d.Code, Name: d.Name}
+		if entry, ok := dimLookup[d.Code]; ok {
+			dim.DimID = entry.DimID
+			dim.ValueID = entry.ValueID
+		}
+		result.Departments[i] = dim
+	}
+	return result, nil
 }
 
 // --- Reports ---

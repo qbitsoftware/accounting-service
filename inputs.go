@@ -24,15 +24,25 @@ type CreateInvoiceInput struct {
 	FooterComment       string
 }
 
+// LineDimension represents a dimension to attach to a Merit invoice row.
+type LineDimension struct {
+	DimID      int    // Dimension type ID
+	DimValueID string // Dimension value GUID
+	DimCode    string // Dimension value code
+}
+
 type CreateInvoiceLineInput struct {
-	Code        string
-	Description string
-	Quantity    decimal.Decimal
-	UnitPrice   decimal.Decimal
-	TaxID       string
-	AccountCode string
-	Type        *int   // Item type: 1=product, 2=package, 3=service (default: 3)
-	UOMName     string // Unit of measure (e.g., "pcs", "hrs", "kg")
+	Code           string
+	Description    string
+	Quantity       decimal.Decimal
+	UnitPrice      decimal.Decimal
+	TaxID          string
+	AccountCode    string
+	Type           *int   // Item type: 1=product, 2=package, 3=service (default: 3)
+	UOMName        string // Unit of measure (e.g., "pcs", "hrs", "kg")
+	ProjectCode    string // Merit project code (dimension) — flat field for v1 compat
+	CostCenterCode string // Merit cost center code (dimension) — flat field for v1 compat
+	Dimensions     []LineDimension // Merit v2 dimensions array
 }
 
 type CreateCustomerInput struct {

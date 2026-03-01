@@ -845,6 +845,25 @@ type Department struct {
 	NonActive bool   `json:"NonActive"`
 }
 
+// --- Dimensions (v2) ---
+
+// GetDimensionsRequest is the request body for v2/getdimensions.
+type GetDimensionsRequest struct {
+	AllValues bool `json:"AllValues"`
+}
+
+// DimensionValueEntry represents a single entry from v2/getdimensions.
+type DimensionValueEntry struct {
+	DimID         int    `json:"DimId"`
+	DimName       string `json:"DimName"`
+	ID            string `json:"Id"`
+	Code          string `json:"Code"`
+	Name          string `json:"Name"`
+	EndDate       string `json:"EndDate"`
+	NonActive     bool   `json:"NonActive"`
+	DebitPositive bool   `json:"DebitPositive"`
+}
+
 // --- Reports ---
 
 // CustomerDebtsParams specifies parameters for the customer debts report.

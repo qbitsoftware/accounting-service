@@ -44,6 +44,7 @@ type Provider interface {
 	// Reference data
 	ListTaxes(ctx context.Context) ([]Tax, error)
 	ListAccounts(ctx context.Context) ([]Account, error)
+	ListDimensions(ctx context.Context) (*DimensionList, error)
 
 	// Reports
 	CustomerDebts(ctx context.Context, customerName string, overdueDays *int) ([]CustomerDebt, error)

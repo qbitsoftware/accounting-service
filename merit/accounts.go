@@ -37,3 +37,13 @@ func (c *Client) ListDepartments(ctx context.Context) ([]Department, error) {
 	}
 	return result, nil
 }
+
+// GetDimensions retrieves all dimension values via v2 endpoint.
+// Returns DimId, Id (GUID), Code, and Name for each dimension value.
+func (c *Client) GetDimensions(ctx context.Context, allValues bool) ([]DimensionValueEntry, error) {
+	var result []DimensionValueEntry
+	if err := c.post(ctx, "v2/getdimensions", GetDimensionsRequest{AllValues: allValues}, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
