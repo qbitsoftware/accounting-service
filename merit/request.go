@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 )
 
@@ -35,6 +36,8 @@ func (c *Client) post(ctx context.Context, endpoint string, payload any, result 
 	reqURL := fmt.Sprintf("%s%s?ApiId=%s&timestamp=%s&signature=%s",
 		c.apiURL, endpoint, c.apiID, ts, urlEncodeSignature(sig))
 
+	slog.Info("merit api request", "endpoint", endpoint, "body", string(body))
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("merit: create request: %w", err)
@@ -51,6 +54,8 @@ func (c *Client) post(ctx context.Context, endpoint string, payload any, result 
 	if err != nil {
 		return fmt.Errorf("merit: read response: %w", err)
 	}
+
+	slog.Info("merit api response", "endpoint", endpoint, "status", resp.StatusCode, "body", string(respBody))
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &APIError{
