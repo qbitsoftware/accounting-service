@@ -59,6 +59,7 @@ type CreateCustomerInput struct {
 	Currency    string
 	PaymentDays *int
 	Contact     string
+	RefNoBase   string // Base for per-customer reference number generation in Merit
 }
 
 type UpdateCustomerInput struct {
@@ -72,6 +73,7 @@ type UpdateCustomerInput struct {
 	CountryCode *string
 	RegNo       *string
 	VATRegNo    *string
+	RefNoBase   *string // Base for per-customer reference number generation in Merit
 }
 
 type CreatePaymentInput struct {

@@ -184,6 +184,7 @@ func (p *meritProvider) CreateCustomer(ctx context.Context, input CreateCustomer
 		CurrencyCode:    input.Currency,
 		PaymentDeadLine: input.PaymentDays,
 		Contact:         input.Contact,
+		RefNoBase:       input.RefNoBase,
 	}
 
 	resp, err := p.client.CreateCustomer(ctx, req)
@@ -205,6 +206,7 @@ func (p *meritProvider) CreateCustomer(ctx context.Context, input CreateCustomer
 		CountryCode: input.CountryCode,
 		Currency:    input.Currency,
 		Contact:     input.Contact,
+		RefNoBase:   input.RefNoBase,
 	}, nil
 }
 
@@ -238,6 +240,9 @@ func (p *meritProvider) UpdateCustomer(ctx context.Context, input UpdateCustomer
 	}
 	if input.VATRegNo != nil {
 		req.VatRegNo = *input.VATRegNo
+	}
+	if input.RefNoBase != nil {
+		req.RefNoBase = *input.RefNoBase
 	}
 
 	err := p.client.UpdateCustomer(ctx, req)
@@ -752,6 +757,7 @@ func mapCustomerListItem(item merit.CustomerListItem) Customer {
 		PaymentDays: item.PaymentDeadLine,
 		Contact:     item.Contact,
 		HomePage:    item.HomePage,
+		RefNoBase:   item.RefNoBase,
 	}
 }
 

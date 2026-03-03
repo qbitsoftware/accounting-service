@@ -84,6 +84,7 @@ type Customer struct {
 	PaymentDays int
 	Contact     string
 	HomePage    string
+	RefNoBase   string // Base for per-customer reference number generation
 }
 
 type Payment struct {
