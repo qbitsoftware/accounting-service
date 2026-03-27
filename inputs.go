@@ -135,6 +135,7 @@ type CreateCreditNoteInput struct {
 	RefNo               string
 	Currency            string
 	Lines               []CreateInvoiceLineInput
+	TotalAmount         decimal.Decimal // must be negative (net subtotal before tax)
 	Comment             string
 	FooterComment       string
 	OriginalInvoiceNo   string

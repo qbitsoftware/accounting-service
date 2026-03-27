@@ -413,6 +413,7 @@ func (p *meritProvider) CreateCreditNote(ctx context.Context, input CreateCredit
 		CurrencyCode:  input.Currency,
 		InvoiceRow:    rows,
 		TaxAmount:     taxes,
+		TotalAmount:   input.TotalAmount,
 		Hcomment:      input.Comment,
 		Fcomment:      input.FooterComment,
 	}
