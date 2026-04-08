@@ -28,18 +28,6 @@ go test -v ./...
 go test -run TestName ./merit
 ```
 
-### Module Management
-```bash
-# Add a new dependency
-go get package-name
-
-# Update dependencies
-go get -u ./...
-
-# Tidy up go.mod/go.sum
-go mod tidy
-```
-
 ## Architecture
 
 ### Provider Pattern
@@ -47,7 +35,7 @@ The library uses a **Provider interface** (`provider.go`) that defines all accou
 
 - **Provider interface**: Defines methods for all operations (invoices, customers, payments, items, purchases, taxes, reports, sync)
 - **meritProvider** (`merit_adapter.go`): Implements Provider using Merit Aktiva API
-- Future providers will implement the same interface
+- `simplbooks/` directory exists as a placeholder for future SimplBooks provider
 
 ### Client and Services Pattern
 The main entry point is `Client` (`client.go`), created via `NewClient(Config)`:
@@ -56,10 +44,17 @@ The main entry point is `Client` (`client.go`), created via `NewClient(Config)`:
 - Each service (e.g., `InvoiceService` in `invoice_service.go`) wraps the provider and provides domain-specific methods
 - Services delegate to the provider implementation
 
+### Key Root-Level Files
+- `types.go`: Library-level domain types (Invoice, Customer, Payment, Item, etc.)
+- `inputs.go`: All input structs for create/update/list operations
+- `errors.go`: Sentinel errors and `ProviderError` wrapper
+- `reference.go`: Estonian reference number (viitenumber) generation using 3-7-1 algorithm
+- `helpers.go`: Date parsing/formatting utilities (YYYYMMDD format constant: `meritDateFormat`)
+
 ### Adapter Pattern
 Each provider has an adapter (e.g., `merit_adapter.go`) that:
-- Translates library types (defined in `types.go`) to/from provider-specific types
-- Maps provider-specific errors to library sentinel errors (`ErrNotFound`, `ErrAuthFailed`, `ErrRateLimit`)
+- Translates library types to/from provider-specific types (e.g., `merit/types.go`)
+- Maps HTTP status codes to sentinel errors (401/403→`ErrAuthFailed`, 404→`ErrNotFound`, 429→`ErrRateLimit`)
 - Handles provider-specific authentication and request formatting
 
 ### Merit Provider Implementation
@@ -81,13 +76,24 @@ Merit Aktiva operates in multiple regions with different base URLs:
 The client configuration supports region selection via the `Region` field in `Config`.
 
 ### Batch Operations
-Some services support batch operations (e.g., `InvoiceService.BatchCreate`) that process multiple items concurrently with a concurrency limit (semaphore pattern).
+`InvoiceService.BatchCreate` processes multiple invoices concurrently using a channel-based semaphore (limit: 5 concurrent requests).
+
+### FindOrCreate Pattern
+`CustomerService.FindOrCreate` searches by email first, creates if `IsNotFound()` returns true. This pattern avoids duplicate customers.
+
+### Invoice Line Dimensions
+Two approaches for attaching dimensions (projects, cost centers) to invoice lines:
+- **v1 flat fields**: `ProjectCode` and `CostCenterCode` on `CreateInvoiceLineInput`
+- **v2 Dimensions array**: `[]LineDimension` with `DimID`, `DimValueID`, `DimCode`
 
 ### Error Wrapping
 Provider errors are wrapped in `ProviderError` (defined in `errors.go`) which includes:
 - Provider name
 - Operation name
 - Underlying error (may be a sentinel error)
+
+### Merit Authentication
+HMAC-SHA256 scheme: signs `apiID + timestamp(YYYYMMDDHHmmss) + jsonBody` with the API key. Signature, ApiId, and timestamp are passed as URL query parameters.
 
 ## Testing Conventions
 
@@ -96,15 +102,10 @@ Tests use `httptest` to mock HTTP responses:
 func newTestServer(t *testing.T, handler http.HandlerFunc) (*Client, *httptest.Server)
 ```
 
-Test files verify:
-- Authentication headers (ApiId, timestamp, signature)
-- Request paths and methods
-- Request/response payload structure
-- Error handling and status codes
-
-## Dependencies
-
-- `github.com/shopspring/decimal`: Used for precise monetary calculations (amounts, percentages, taxes)
+Test files:
+- `merit/merit_test.go`: Auth headers, request paths, payload structure, error handling
+- `reference_test.go`: Estonian reference number validation
+- `example_test.go`: End-to-end workflow example (customer → item → invoice creation)
 
 ## Adding a New Provider
 

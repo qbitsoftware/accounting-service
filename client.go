@@ -8,11 +8,12 @@ import (
 
 // Config holds configuration for creating a new accounting Client.
 type Config struct {
-	Provider   string       // Provider name (e.g. "merit")
-	APIID      string       // API identifier
-	APIKey     string       // API secret key
-	Region     string       // Regional endpoint (e.g. "ee", "pl")
-	HTTPClient *http.Client // Optional HTTP client; defaults to http.DefaultClient
+	Provider   string            // Provider name (e.g. "merit", "directo", "excellentbooks")
+	APIID      string            // API identifier (Merit: API ID, Directo: company code)
+	APIKey     string            // API secret key (Merit: API key, Directo: XML token)
+	Region     string            // Regional endpoint (e.g. "ee", "pl")
+	HTTPClient *http.Client      // Optional HTTP client; defaults to http.DefaultClient
+	Extra      map[string]string // Provider-specific config (e.g. "rest_api_key" for Directo)
 }
 
 // Client is the main entry point for the accounting SDK.
@@ -32,9 +33,17 @@ type Client struct {
 // NewClient creates a new Client for the configured accounting provider.
 func NewClient(cfg Config) (*Client, error) {
 	var p Provider
+	var err error
 	switch cfg.Provider {
 	case "merit":
 		p = newMeritProvider(cfg)
+	case "directo":
+		p, err = newDirectoProvider(cfg)
+		if err != nil {
+			return nil, err
+		}
+	case "excellentbooks":
+		p = newExcellentProvider(cfg)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedProvider, cfg.Provider)
 	}
