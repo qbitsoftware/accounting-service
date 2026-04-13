@@ -162,6 +162,10 @@ func (p *meritProvider) ListInvoices(ctx context.Context, input ListInvoicesInpu
 	return invoices, nil
 }
 
+func (p *meritProvider) FindInvoiceByRef(_ context.Context, _ string) (*Invoice, error) {
+	return nil, p.wrapError("FindInvoiceByRef", fmt.Errorf("not yet implemented"))
+}
+
 func (p *meritProvider) DeleteInvoice(ctx context.Context, id string) error {
 	err := p.client.DeleteInvoice(ctx, merit.DeleteInvoiceParams{ID: id})
 	return p.wrapError("DeleteInvoice", err)

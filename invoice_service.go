@@ -29,6 +29,10 @@ func (s *InvoiceService) Delete(ctx context.Context, id string) error {
 	return s.provider.DeleteInvoice(ctx, id)
 }
 
+func (s *InvoiceService) FindByRef(ctx context.Context, refStr string) (*Invoice, error) {
+	return s.provider.FindInvoiceByRef(ctx, refStr)
+}
+
 func (s *InvoiceService) CreateCreditNote(ctx context.Context, input CreateCreditNoteInput) (*Invoice, error) {
 	return s.provider.CreateCreditNote(ctx, input)
 }

@@ -22,6 +22,7 @@ type CreateInvoiceInput struct {
 	TotalAmount         decimal.Decimal // Total invoice amount (for validation)
 	Comment             string
 	FooterComment       string
+	AutoConfirm         bool // If true, sets OKFlag=1 on the invoice (confirms immediately)
 }
 
 // LineDimension represents a dimension to attach to a Merit invoice row.

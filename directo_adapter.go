@@ -25,10 +25,16 @@ func newDirectoProvider(cfg Config) (*directoProvider, error) {
 		restAPIKey = cfg.Extra["rest_api_key"]
 	}
 
+	xmlBaseURL := ""
+	if cfg.Extra != nil {
+		xmlBaseURL = cfg.Extra["xml_base_url"]
+	}
+
 	client, err := directo.New(directo.Config{
 		Company:    cfg.APIID,
 		Token:      cfg.APIKey,
 		RestAPIKey: restAPIKey,
+		XMLBaseURL: xmlBaseURL,
 		HTTPClient: cfg.HTTPClient,
 	})
 	if err != nil {
@@ -46,14 +52,14 @@ func (p *directoProvider) TestConnection(ctx context.Context) error {
 // --- Invoices ---
 
 func (p *directoProvider) CreateInvoice(ctx context.Context, input CreateInvoiceInput) (*Invoice, error) {
-	lines := make([]directo.InvoiceLineXML, len(input.Lines))
+	rows := make([]directo.InvoiceLineXML, len(input.Lines))
 	for i, line := range input.Lines {
-		lines[i] = directo.InvoiceLineXML{
+		rows[i] = directo.InvoiceLineXML{
 			ItemCode:    line.Code,
 			Description: line.Description,
 			Quantity:    line.Quantity.String(),
 			Price:       line.UnitPrice.String(),
-			TaxCode:     line.TaxID,
+			VatCode:     line.TaxID,
 			AccountCode: line.AccountCode,
 			Unit:        line.UOMName,
 			Project:     line.ProjectCode,
@@ -68,11 +74,9 @@ func (p *directoProvider) CreateInvoice(ctx context.Context, input CreateInvoice
 		Date:         formatDirectoDate(input.DocDate),
 		Deadline:     formatDirectoDate(input.DueDate),
 		Currency:     input.Currency,
-		RefNo:        input.RefNo,
 		Comment:      input.Comment,
-		FootComment:  input.FooterComment,
-		Confirmed:    "1",
-		Lines:        lines,
+		Confirm:      "1",
+		Rows:         directo.NewInvoiceRows(rows),
 	}
 
 	_, err := p.client.CreateInvoice(ctx, inv, nil)
@@ -127,6 +131,10 @@ func (p *directoProvider) ListInvoices(ctx context.Context, input ListInvoicesIn
 	return invoices, nil
 }
 
+func (p *directoProvider) FindInvoiceByRef(_ context.Context, _ string) (*Invoice, error) {
+	return nil, p.wrapError("FindInvoiceByRef", fmt.Errorf("not yet implemented"))
+}
+
 func (p *directoProvider) DeleteInvoice(ctx context.Context, id string) error {
 	_, err := p.client.DeleteInvoice(ctx, id)
 	return p.wrapError("DeleteInvoice", err)
@@ -143,20 +151,20 @@ func (p *directoProvider) CreateCustomer(ctx context.Context, input CreateCustom
 	}
 
 	cust := directo.CustomerXML{
-		Code:        code,
-		Name:        input.Name,
-		RegNo:       input.RegNo,
-		VATNo:       input.VATRegNo,
-		Email:       input.Email,
-		Phone:       input.Phone,
-		Address:     input.Address,
-		City:        input.City,
-		County:      input.County,
-		PostalCode:  input.PostalCode,
-		Country:     input.CountryCode,
-		Currency:    input.Currency,
-		Contact:     input.Contact,
-		PaymentDays: paymentDays,
+		Code:     code,
+		Name:     input.Name,
+		RegNo:    input.RegNo,
+		VATNo:    input.VATRegNo,
+		Email:    input.Email,
+		Phone:    input.Phone,
+		Address1: input.Address,
+		Address2: input.City,
+		Address3: input.PostalCode,
+		County:   input.County,
+		Country:  input.CountryCode,
+		Currency: input.Currency,
+		Contact:  input.Contact,
+		PayTerm:  paymentDays,
 	}
 
 	_, err := p.client.CreateCustomer(ctx, cust)
@@ -195,13 +203,13 @@ func (p *directoProvider) UpdateCustomer(ctx context.Context, input UpdateCustom
 		cust.Phone = *input.Phone
 	}
 	if input.Address != nil {
-		cust.Address = *input.Address
+		cust.Address1 = *input.Address
 	}
 	if input.City != nil {
-		cust.City = *input.City
+		cust.Address2 = *input.City
 	}
 	if input.PostalCode != nil {
-		cust.PostalCode = *input.PostalCode
+		cust.Address3 = *input.PostalCode
 	}
 	if input.CountryCode != nil {
 		cust.Country = *input.CountryCode
@@ -383,16 +391,16 @@ func (p *directoProvider) UpdateItem(ctx context.Context, input UpdateItemInput)
 
 func (p *directoProvider) CreateCreditNote(ctx context.Context, input CreateCreditNoteInput) (*Invoice, error) {
 	// Directo handles credit notes as negative invoices
-	lines := make([]directo.InvoiceLineXML, len(input.Lines))
+	rows := make([]directo.InvoiceLineXML, len(input.Lines))
 	for i, line := range input.Lines {
 		// Negate quantities for credit note
 		qty := line.Quantity.Neg()
-		lines[i] = directo.InvoiceLineXML{
+		rows[i] = directo.InvoiceLineXML{
 			ItemCode:    line.Code,
 			Description: line.Description,
 			Quantity:    qty.String(),
 			Price:       line.UnitPrice.String(),
-			TaxCode:     line.TaxID,
+			VatCode:     line.TaxID,
 			AccountCode: line.AccountCode,
 			Unit:        line.UOMName,
 		}
@@ -405,11 +413,9 @@ func (p *directoProvider) CreateCreditNote(ctx context.Context, input CreateCred
 		Date:         formatDirectoDate(input.DocDate),
 		Deadline:     formatDirectoDate(input.DueDate),
 		Currency:     input.Currency,
-		RefNo:        input.RefNo,
 		Comment:      input.Comment,
-		FootComment:  input.FooterComment,
-		Confirmed:    "1",
-		Lines:        lines,
+		Confirm:      "1",
+		Rows:         directo.NewInvoiceRows(rows),
 	}
 
 	_, err := p.client.CreateInvoice(ctx, inv, nil)

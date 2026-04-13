@@ -6,38 +6,65 @@ import (
 	"net/url"
 )
 
-// InvoiceXML represents a sales invoice for XML Direct write operations.
-type InvoiceXML struct {
-	XMLName      xml.Name         `xml:"invoice"`
-	Number       string           `xml:"number,attr,omitempty"`
-	CustomerCode string           `xml:"customer,attr"`
-	CustomerName string           `xml:"customername,attr,omitempty"`
-	Date         string           `xml:"date,attr"`
-	Deadline     string           `xml:"deadline,attr"`
-	Currency     string           `xml:"currency,attr,omitempty"`
-	RefNo        string           `xml:"refno,attr,omitempty"`
-	Comment      string           `xml:"comment,attr,omitempty"`
-	FootComment  string           `xml:"footcomment,attr,omitempty"`
-	VATZone      string           `xml:"vatzone,attr,omitempty"` // 0=local, 1=EU, 2=export
-	Language     string           `xml:"language,attr,omitempty"`
-	PaymentDays  string           `xml:"paymentdays,attr,omitempty"`
-	PaymentTotal string           `xml:"paymenttotal,attr,omitempty"` // If positive, auto-creates receipt
-	Confirmed    string           `xml:"confirmed,attr,omitempty"`    // 1 = auto-confirm
-	Lines        []InvoiceLineXML `xml:"line"`
+// invoiceRowsWrapper wraps invoice line rows per xml_IN_arved.xsd (<rows><row .../></rows>).
+type invoiceRowsWrapper struct {
+	XMLName xml.Name         `xml:"rows"`
+	Rows    []InvoiceLineXML `xml:"row"`
 }
 
-// InvoiceLineXML represents an invoice line for XML Direct.
+// InvoiceXML represents a sales invoice for XML Direct write operations.
+// Field names match the xml_IN_arved.xsd schema exactly.
+//
+// The Email/CustomerRegNo/CustomerType/Address fields let you stamp
+// customer details directly on the invoice — useful when the customer
+// write component is not licensed and the referenced customercode either
+// doesn't exist or lacks an email/reg.no on file. Directo will use these
+// inline values to satisfy its "missing customer email or reg.no" check
+// (validation error type="13").
+type InvoiceXML struct {
+	XMLName      xml.Name           `xml:"invoice"`
+	Number       string             `xml:"number,attr,omitempty"`
+	CustomerCode string             `xml:"customercode,attr"`           // XSD: customercode (was customer)
+	CustomerName string             `xml:"customername,attr,omitempty"`
+	Date         string             `xml:"date,attr"`
+	Deadline     string             `xml:"duedate,attr,omitempty"`      // XSD: duedate (was deadline)
+	Currency     string             `xml:"currency,attr,omitempty"`
+	Comment      string             `xml:"comment,attr,omitempty"`
+	VATZone      string             `xml:"vatzone,attr,omitempty"`      // 0=local, 1=EU, 2=export
+	Language     string             `xml:"language,attr,omitempty"`
+	PaymentTerm  string             `xml:"paymentterm,attr,omitempty"`  // XSD: paymentterm
+	PaymentTotal string             `xml:"paymenttotal,attr,omitempty"` // positive = auto-create receipt
+	Confirm      string             `xml:"confirm,attr,omitempty"`      // XSD: confirm (was confirmed), "1" = confirm
+
+	// Inline customer details — see struct doc comment.
+	Email        string `xml:"email,attr,omitempty"`
+	Phone        string `xml:"phone,attr,omitempty"`
+	Address1     string `xml:"address1,attr,omitempty"`
+	Address2     string `xml:"address2,attr,omitempty"`
+	Address3     string `xml:"address3,attr,omitempty"`
+	VATRegNo     string `xml:"vatregno,attr,omitempty"`      // VAT registration number
+	CustomerRegNo  string `xml:"customer_regno,attr,omitempty"`  // company registration number
+	CustomerType   string `xml:"customer_type,attr,omitempty"`   // 0=company, 1=private, 2=government
+
+	Rows invoiceRowsWrapper
+}
+
+// InvoiceLineXML represents an invoice row per xml_IN_arved.xsd.
 type InvoiceLineXML struct {
-	XMLName     xml.Name `xml:"line"`
-	ItemCode    string   `xml:"code,attr"`
-	Description string   `xml:"description,attr,omitempty"`
-	Quantity    string   `xml:"quantity,attr"`
-	Price       string   `xml:"price,attr"`
-	TaxCode     string   `xml:"tax,attr,omitempty"`
-	AccountCode string   `xml:"account,attr,omitempty"`
-	Unit        string   `xml:"unit,attr,omitempty"`
-	Object      string   `xml:"object,attr,omitempty"` // Dimension/cost center
-	Project     string   `xml:"project,attr,omitempty"`
+	ItemCode    string `xml:"item,attr,omitempty"`        // XSD: item (was code)
+	Description string `xml:"description,attr,omitempty"`
+	Quantity    string `xml:"quantity,attr"`
+	Price       string `xml:"price,attr"`
+	VatCode     string `xml:"vatcode,attr,omitempty"`     // XSD: vatcode (was tax)
+	AccountCode string `xml:"account,attr,omitempty"`
+	Unit        string `xml:"unit,attr,omitempty"`
+	Object      string `xml:"object,attr,omitempty"`
+	Project     string `xml:"project,attr,omitempty"`
+}
+
+// NewInvoiceRows is a convenience constructor for the rows wrapper.
+func NewInvoiceRows(rows []InvoiceLineXML) invoiceRowsWrapper {
+	return invoiceRowsWrapper{Rows: rows}
 }
 
 // invoicesXMLWrapper wraps invoice(s) for XML Direct submission.
@@ -85,6 +112,8 @@ func (c *Client) GetInvoice(ctx context.Context, number string) (*InvoiceREST, e
 }
 
 // CreateInvoice creates an invoice via XML Direct.
+// Uses what=invoice per the XML Direct components table — note that
+// "arved" is only the Estonian UI label / XSD filename, not the API value.
 func (c *Client) CreateInvoice(ctx context.Context, inv InvoiceXML, extraParams url.Values) (*XMLResults, error) {
 	wrapper := invoicesXMLWrapper{
 		Invoices: []InvoiceXML{inv},
@@ -100,7 +129,6 @@ func (c *Client) CreateInvoice(ctx context.Context, inv InvoiceXML, extraParams 
 
 // DeleteInvoice deletes an invoice by number via XML Direct.
 func (c *Client) DeleteInvoice(ctx context.Context, number string) (*XMLResults, error) {
-	// Directo uses a special delete operation via XML
-	xmlData := `<invoices><invoice number="` + number + `" delete="1" /></invoices>`
+	xmlData := `<invoices><invoice number="` + number + `" delete="1"><rows></rows></invoice></invoices>`
 	return c.xml.xmlPut(ctx, "invoice", xmlData, nil)
 }

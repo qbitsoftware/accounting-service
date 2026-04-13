@@ -20,9 +20,13 @@ type excellentProvider struct {
 }
 
 func newExcellentProvider(cfg Config) *excellentProvider {
+	baseURL := strings.TrimRight(cfg.Extra["base_url"], "/")
+	if baseURL != "" && !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
 	return &excellentProvider{
 		client: excellentbooks.New(excellentbooks.Config{
-			BaseURL:    cfg.Extra["base_url"],
+			BaseURL:    baseURL,
 			Username:   cfg.APIID,
 			Password:   cfg.APIKey,
 			HTTPClient: cfg.HTTPClient,
@@ -69,8 +73,9 @@ func (p *excellentProvider) CreateInvoice(ctx context.Context, input CreateInvoi
 		}
 	}
 
-	// Confirm the invoice
-	fields["set_field.OKFlag"] = "1"
+	if input.AutoConfirm {
+		fields["set_field.OKFlag"] = "1"
+	}
 
 	inv, err := p.client.CreateInvoice(ctx, fields)
 	if err != nil {
@@ -116,6 +121,20 @@ func (p *excellentProvider) ListInvoices(ctx context.Context, input ListInvoices
 
 func (p *excellentProvider) DeleteInvoice(_ context.Context, _ string) error {
 	return p.wrapError("DeleteInvoice", fmt.Errorf("not supported by Excellent Books API"))
+}
+
+func (p *excellentProvider) FindInvoiceByRef(ctx context.Context, refStr string) (*Invoice, error) {
+	items, _, err := p.client.ListInvoices(ctx, excellentbooks.ListParams{
+		Limit:  1,
+		Filter: map[string]string{"RefStr": refStr},
+	})
+	if err != nil {
+		return nil, p.wrapError("FindInvoiceByRef", err)
+	}
+	if len(items) == 0 {
+		return nil, &ProviderError{Provider: "excellentbooks", Op: "FindInvoiceByRef", Err: ErrNotFound}
+	}
+	return mapExcellentInvoice(&items[0]), nil
 }
 
 // --- Customers ---
@@ -320,10 +339,10 @@ func (p *excellentProvider) CreateItem(ctx context.Context, input CreateItemInpu
 	if input.SalesAccountCode != "" {
 		fields["set_field.SalesAcc"] = input.SalesAccountCode
 	}
+	// ItemType 1 = stock. Service/plain items use the default (no value needed).
+	// ItemType 2 = Recipe/Kit in StandardBooks — do NOT send for services.
 	if input.Type == ItemTypeStock {
 		fields["set_field.ItemType"] = "1"
-	} else {
-		fields["set_field.ItemType"] = "2"
 	}
 
 	item, err := p.client.CreateItem(ctx, fields)

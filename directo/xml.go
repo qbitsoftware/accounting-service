@@ -12,6 +12,10 @@ import (
 )
 
 // xmlClient handles read+write operations via the Directo XML Direct API.
+// IMPORTANT: routing params (what, get/put, filters) MUST be in the URL
+// query string. Only token and xmldata go in the POST body. The Directo
+// router rejects requests with routing params in the body, returning
+// <result type="404" desc="Invalid url given"/>.
 type xmlClient struct {
 	baseURL    string
 	token      string
@@ -37,23 +41,28 @@ type XMLResults struct {
 }
 
 // xmlPut performs a PUT (write) operation via XML Direct.
+// Routing params (what, put, extra filters) go in the URL query string;
+// only token and xmldata go in the POST body — see xmlClient comment.
 func (c *xmlClient) xmlPut(ctx context.Context, what string, xmlData string, extraParams url.Values) (*XMLResults, error) {
-	params := url.Values{
-		"put":     {"1"},
-		"what":    {what},
-		"TOKEN":   {c.token},
-		"KEY":     {c.token},
-		"xmldata": {xmlData},
+	query := url.Values{
+		"put":  {"1"},
+		"what": {what},
 	}
 	for k, vs := range extraParams {
 		for _, v := range vs {
-			params.Add(k, v)
+			query.Add(k, v)
 		}
 	}
 
-	slog.Info("directo xml put", "what", what, "xmldata_len", len(xmlData))
+	postBody := url.Values{
+		"token":   {c.token},
+		"xmldata": {xmlData},
+	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL, strings.NewReader(params.Encode()))
+	reqURL := c.baseURL + "?" + query.Encode()
+	slog.Info("directo xml put", "url", reqURL, "what", what, "xmldata", xmlData)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(postBody.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("directo xml: create request: %w", err)
 	}
@@ -140,10 +149,9 @@ func (c *xmlClient) xmlPut(ctx context.Context, what string, xmlData string, ext
 // xmlGet performs a GET (read) operation via XML Direct.
 func (c *xmlClient) xmlGet(ctx context.Context, what string, extraParams url.Values) ([]byte, error) {
 	params := url.Values{
-		"get":   {"1"},
-		"what":  {what},
-		"TOKEN": {c.token},
-		"KEY":   {c.token},
+		"get":  {"1"},
+		"what": {what},
+		"token": {c.token},
 	}
 	for k, vs := range extraParams {
 		for _, v := range vs {

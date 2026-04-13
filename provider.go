@@ -14,6 +14,7 @@ type Provider interface {
 	GetInvoice(ctx context.Context, id string) (*Invoice, error)
 	GetInvoicePDF(ctx context.Context, id string, deliveryNote bool) (*InvoicePDF, error)
 	ListInvoices(ctx context.Context, input ListInvoicesInput) ([]Invoice, error)
+	FindInvoiceByRef(ctx context.Context, refStr string) (*Invoice, error)
 	DeleteInvoice(ctx context.Context, id string) error
 
 	// Customers

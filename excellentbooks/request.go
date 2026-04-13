@@ -28,12 +28,13 @@ func (e *APIError) Error() string {
 
 // ListParams specifies common query parameters for GET requests.
 type ListParams struct {
-	Fields       string // Comma-separated field list
+	Fields       string            // Comma-separated field list
 	Limit        int
 	Offset       int
 	Sort         string
 	Range        string
-	UpdatesAfter string // Sequence value for incremental sync
+	UpdatesAfter string            // Sequence value for incremental sync
+	Filter       map[string]string // Exact-match filters: {"RefStr": "ORD-001"}
 }
 
 func (p ListParams) toValues() url.Values {
@@ -55,6 +56,9 @@ func (p ListParams) toValues() url.Values {
 	}
 	if p.UpdatesAfter != "" {
 		v.Set("updates_after", p.UpdatesAfter)
+	}
+	for field, val := range p.Filter {
+		v.Set("filter."+field, val)
 	}
 	return v
 }
@@ -168,6 +172,21 @@ func (c *Client) doRequest(req *http.Request) (*Response, error) {
 		return nil, &APIError{
 			StatusCode: resp.StatusCode,
 			Message:    string(body),
+		}
+	}
+
+	// EB sometimes returns 200 with an error payload — check before treating as success
+	var errCheck errorResponse
+	if json.Unmarshal(body, &errCheck) == nil && errCheck.Error.Code != "" {
+		message := errCheck.Error.Description
+		if message == "" && len(errCheck.Messages) > 0 {
+			message = strings.Join(errCheck.Messages, "; ")
+		}
+		return nil, &APIError{
+			StatusCode: resp.StatusCode,
+			Message:    message,
+			ErrorCode:  errCheck.Error.Code,
+			ErrorField: errCheck.Error.Field,
 		}
 	}
 

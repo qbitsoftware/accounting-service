@@ -141,14 +141,14 @@ const (
 )
 
 type Item struct {
-	ID             string
-	Code           string
-	Name           string
-	Description    string
-	Type           ItemType
-	UnitOfMeasure  string
-	SalesPrice     decimal.Decimal
-	TaxID          string
+	ID            string          `json:"id"`
+	Code          string          `json:"code"`
+	Name          string          `json:"name"`
+	Description   string          `json:"description"`
+	Type          ItemType        `json:"type"`
+	UnitOfMeasure string          `json:"unit_of_measure"`
+	SalesPrice    decimal.Decimal `json:"sales_price"`
+	TaxID         string          `json:"tax_id"`
 }
 
 type PurchaseInvoice struct {

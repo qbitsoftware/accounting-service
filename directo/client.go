@@ -14,7 +14,11 @@ import (
 
 const (
 	DefaultRESTBaseURL = "https://login.directo.ee/apidirect/v1/"
-	XMLCoreURLTemplate = "https://login.directo.ee/xmlcore/%s/xmlcore.asp"
+	// XML Direct endpoint — used for both reads and writes. The routing
+	// params (what, get/put, filters) MUST go in the URL query string;
+	// only token and xmldata belong in the POST body. Posting routing
+	// params in the body returns <result type="404" desc="Invalid url given"/>.
+	DefaultXMLBaseURL = "https://login.directo.ee/xmlcore/cap_xml_direct/xmlcore.asp"
 )
 
 // Config holds the configuration for a Directo API client.
@@ -27,6 +31,10 @@ type Config struct {
 
 	// RestAPIKey is the REST API key (for read operations via X-Directo-Key header).
 	RestAPIKey string
+
+	// XMLBaseURL overrides the default XML Direct endpoint.
+	// Defaults to https://login.directo.ee/xmlcore/cap_xml_direct/xmlcore.asp
+	XMLBaseURL string
 
 	// HTTPClient is an optional HTTP client for making requests.
 	// Defaults to http.DefaultClient if nil.
@@ -47,16 +55,16 @@ func New(cfg Config) (*Client, error) {
 	if cfg.Token == "" {
 		return nil, fmt.Errorf("directo: XML Direct token is required")
 	}
-	if cfg.RestAPIKey == "" {
-		return nil, fmt.Errorf("directo: REST API key is required")
-	}
 
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
 
-	xmlBaseURL := fmt.Sprintf(XMLCoreURLTemplate, cfg.Company)
+	xmlBaseURL := cfg.XMLBaseURL
+	if xmlBaseURL == "" {
+		xmlBaseURL = DefaultXMLBaseURL
+	}
 
 	return &Client{
 		rest: &restClient{

@@ -7,24 +7,26 @@ import (
 )
 
 // CustomerXML represents a customer for XML Direct write operations.
+// Field names match the xml_IN_kliendid.xsd schema exactly.
 type CustomerXML struct {
-	XMLName     xml.Name `xml:"customer"`
-	Code        string   `xml:"code,attr"`
-	Name        string   `xml:"name,attr"`
-	RegNo       string   `xml:"regnr,attr,omitempty"`
-	VATNo       string   `xml:"vatregnr,attr,omitempty"`
-	Email       string   `xml:"email,attr,omitempty"`
-	Phone       string   `xml:"phone,attr,omitempty"`
-	Address     string   `xml:"address,attr,omitempty"`
-	City        string   `xml:"city,attr,omitempty"`
-	PostalCode  string   `xml:"postalcode,attr,omitempty"`
-	Country     string   `xml:"country,attr,omitempty"`
-	County      string   `xml:"county,attr,omitempty"`
-	Currency    string   `xml:"currency,attr,omitempty"`
-	Contact     string   `xml:"contact,attr,omitempty"`
-	Type        string   `xml:"type,attr,omitempty"`        // 0=company, 1=private, 2=government
-	PaymentDays string   `xml:"paymentdays,attr,omitempty"` // Payment deadline in days
-	HomePage    string   `xml:"homepage,attr,omitempty"`
+	XMLName  xml.Name `xml:"customer"`
+	Code     string   `xml:"code,attr"`
+	Name     string   `xml:"name,attr"`
+	RegNo    string   `xml:"regno,attr,omitempty"`    // XSD: regno (was regnr)
+	VATNo    string   `xml:"vatregno,attr,omitempty"` // XSD: vatregno (was vatregnr)
+	Email    string   `xml:"email,attr,omitempty"`
+	Phone    string   `xml:"phone,attr,omitempty"`
+	Address1 string   `xml:"address1,attr,omitempty"` // XSD: address1 (was address)
+	Address2 string   `xml:"address2,attr,omitempty"` // city
+	Address3 string   `xml:"address3,attr,omitempty"` // postal code
+	Country  string   `xml:"country,attr,omitempty"`
+	County   string   `xml:"county,attr,omitempty"`
+	Currency string   `xml:"currency,attr,omitempty"`
+	Contact  string   `xml:"contact,attr,omitempty"`
+	Type     string   `xml:"type,attr,omitempty"`    // 0=company, 1=private, 2=government
+	PayTerm  string   `xml:"payterm,attr,omitempty"` // XSD: payterm (was paymentdays)
+	URL      string   `xml:"url,attr,omitempty"`
+	Comment  string   `xml:"comment,attr,omitempty"`
 }
 
 // customersXMLWrapper wraps customer(s) for XML Direct submission.
@@ -83,6 +85,8 @@ func (c *Client) GetCustomerByEmail(ctx context.Context, email string) ([]Custom
 }
 
 // CreateCustomer creates a customer via XML Direct.
+// Uses what=customer per the XML Direct components table — note that
+// "kliendid" is only the Estonian UI label / XSD filename, not the API value.
 func (c *Client) CreateCustomer(ctx context.Context, cust CustomerXML) (*XMLResults, error) {
 	wrapper := customersXMLWrapper{
 		Customers: []CustomerXML{cust},
