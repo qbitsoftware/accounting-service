@@ -68,15 +68,20 @@ func (p *directoProvider) CreateInvoice(ctx context.Context, input CreateInvoice
 	}
 
 	inv := directo.InvoiceXML{
-		Number:       input.InvoiceNo,
-		CustomerCode: input.CustomerID,
-		CustomerName: input.CustomerName,
-		Date:         formatDirectoDate(input.DocDate),
-		Deadline:     formatDirectoDate(input.DueDate),
-		Currency:     input.Currency,
-		Comment:      input.Comment,
-		Confirm:      "1",
-		Rows:         directo.NewInvoiceRows(rows),
+		Number:        input.InvoiceNo,
+		CustomerCode:  input.CustomerID,
+		CustomerName:  input.CustomerName,
+		Date:          formatDirectoDate(input.DocDate),
+		Deadline:      formatDirectoDate(input.DueDate),
+		Currency:      input.Currency,
+		Comment:       input.Comment,
+		Confirm:       directoConfirmFlag(input.AutoConfirm),
+		Email:         input.CustomerEmail,
+		Address1:      input.CustomerAddress,
+		CustomerRegNo: input.CustomerRegNo,
+		VATRegNo:      input.CustomerVATNo,
+		CustomerType:  input.CustomerType,
+		Rows:          directo.NewInvoiceRows(rows),
 	}
 
 	_, err := p.client.CreateInvoice(ctx, inv, nil)
@@ -705,6 +710,17 @@ func mapDirectoItemType(class string) ItemType {
 	default:
 		return ItemTypeService
 	}
+}
+
+// directoConfirmFlag maps AutoConfirm to Directo's `confirm` attribute.
+// "1" confirms the invoice immediately; empty string leaves it as a draft
+// that can be deleted from the Directo UI — important when we want a
+// revert path that doesn't require issuing a credit note.
+func directoConfirmFlag(autoConfirm bool) string {
+	if autoConfirm {
+		return "1"
+	}
+	return ""
 }
 
 func formatDirectoDate(t time.Time) string {

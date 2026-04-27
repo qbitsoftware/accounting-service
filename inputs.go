@@ -10,9 +10,11 @@ type CreateInvoiceInput struct {
 	CustomerID          string
 	CustomerName        string
 	CustomerRegNo       string
+	CustomerVATNo       string
 	CustomerEmail       string
 	CustomerAddress     string
 	CustomerCountryCode string
+	CustomerType        string // Directo customer_type: "0"=company, "1"=private, "2"=government
 	DocDate             time.Time
 	DueDate             time.Time
 	InvoiceNo           string
