@@ -21,6 +21,11 @@ type Config struct {
 	// BaseURL is the server base URL (e.g. "https://test.excellent.ee:3490").
 	BaseURL string
 
+	// CompanyCode is the per-tenant company segment in the API path
+	// (e.g. "1" or "080"). The full request URL is
+	// {BaseURL}/api/{CompanyCode}/{Register}. Defaults to "1" if empty.
+	CompanyCode string
+
 	// Username for HTTP Basic Auth.
 	Username string
 
@@ -34,10 +39,11 @@ type Config struct {
 
 // Client is an Excellent Books API client.
 type Client struct {
-	baseURL    string
-	username   string
-	password   string
-	httpClient *http.Client
+	baseURL     string
+	companyCode string
+	username    string
+	password    string
+	httpClient  *http.Client
 }
 
 // New creates a new Excellent Books API client.
@@ -46,11 +52,16 @@ func New(cfg Config) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
+	companyCode := cfg.CompanyCode
+	if companyCode == "" {
+		companyCode = "1"
+	}
 
 	return &Client{
-		baseURL:    cfg.BaseURL,
-		username:   cfg.Username,
-		password:   cfg.Password,
-		httpClient: httpClient,
+		baseURL:     cfg.BaseURL,
+		companyCode: companyCode,
+		username:    cfg.Username,
+		password:    cfg.Password,
+		httpClient:  httpClient,
 	}
 }

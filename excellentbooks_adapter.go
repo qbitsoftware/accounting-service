@@ -26,10 +26,11 @@ func newExcellentProvider(cfg Config) *excellentProvider {
 	}
 	return &excellentProvider{
 		client: excellentbooks.New(excellentbooks.Config{
-			BaseURL:    baseURL,
-			Username:   cfg.APIID,
-			Password:   cfg.APIKey,
-			HTTPClient: cfg.HTTPClient,
+			BaseURL:     baseURL,
+			CompanyCode: cfg.Extra["company_code"],
+			Username:    cfg.APIID,
+			Password:    cfg.APIKey,
+			HTTPClient:  cfg.HTTPClient,
 		}),
 	}
 }
@@ -261,9 +262,15 @@ func (p *excellentProvider) CreatePayment(ctx context.Context, input CreatePayme
 		fields["set_field.PayCurCode"] = input.Currency
 	}
 
+	// Excellent Books receipt rows expect a customer code (not name) in CustCode.
+	custCode := input.CustomerCode
+	if custCode == "" {
+		custCode = input.CustomerName
+	}
+
 	fields["set_row_field.0.stp"] = "1"
 	fields["set_row_field.0.InvoiceNr"] = input.InvoiceNo
-	fields["set_row_field.0.CustCode"] = input.CustomerName
+	fields["set_row_field.0.CustCode"] = custCode
 	if !input.Amount.IsZero() {
 		fields["set_row_field.0.RecVal"] = input.Amount.String()
 	}
@@ -378,8 +385,7 @@ func (p *excellentProvider) UpdateItem(ctx context.Context, input UpdateItemInpu
 		fields["set_field.VATCode"] = *input.TaxID
 	}
 
-	_, err := p.client.CreateItem(ctx, fields) // PATCH via code
-	return p.wrapError("UpdateItem", err)
+	return p.wrapError("UpdateItem", p.client.UpdateItem(ctx, input.ID, fields))
 }
 
 // --- Credit Notes ---
@@ -468,16 +474,93 @@ func (p *excellentProvider) DeletePurchase(_ context.Context, _ string) error {
 
 // --- Reference data ---
 
-func (p *excellentProvider) ListTaxes(_ context.Context) ([]Tax, error) {
-	return nil, p.wrapError("ListTaxes", fmt.Errorf("not yet implemented"))
+func (p *excellentProvider) ListTaxes(ctx context.Context) ([]Tax, error) {
+	codes, _, err := p.client.ListVATCodes(ctx, excellentbooks.ListParams{Limit: 5000})
+	if err != nil {
+		return nil, p.wrapError("ListTaxes", err)
+	}
+	taxes := make([]Tax, 0, len(codes))
+	for _, c := range codes {
+		// Defensive: skip rows where the code is empty (would crash Radix Select).
+		if c.Code == "" {
+			continue
+		}
+		// Skip codes with a ValidUntil date in the past (expired). Treat empty
+		// or future dates as active. Date format from EB is "YYYY-MM-DD".
+		if c.ValidUntil != "" && c.ValidUntil < time.Now().UTC().Format("2006-01-02") {
+			continue
+		}
+		pct, _ := decimal.NewFromString(c.ExVatpr)
+		taxes = append(taxes, Tax{
+			ID:   c.Code,
+			Code: c.Code,
+			Name: c.Comment,
+			Pct:  pct,
+		})
+	}
+	return taxes, nil
 }
 
-func (p *excellentProvider) ListAccounts(_ context.Context) ([]Account, error) {
-	return nil, p.wrapError("ListAccounts", fmt.Errorf("not yet implemented"))
+func (p *excellentProvider) ListAccounts(ctx context.Context) ([]Account, error) {
+	accs, _, err := p.client.ListGLAccounts(ctx, excellentbooks.ListParams{Limit: 5000})
+	if err != nil {
+		return nil, p.wrapError("ListAccounts", err)
+	}
+	accounts := make([]Account, 0, len(accs))
+	for _, a := range accs {
+		// Defensive: skip rows where the code didn't parse out — would crash
+		// the frontend Radix Select on empty value="".
+		if a.Code == "" {
+			continue
+		}
+		accounts = append(accounts, Account{
+			ID:     a.Code,
+			Code:   a.Code,
+			Name:   a.Comment,
+			Active: a.BlockedFlag != "1",
+		})
+	}
+	return accounts, nil
 }
 
-func (p *excellentProvider) ListDimensions(_ context.Context) (*DimensionList, error) {
-	return nil, p.wrapError("ListDimensions", fmt.Errorf("not yet implemented"))
+func (p *excellentProvider) ListDimensions(ctx context.Context) (*DimensionList, error) {
+	objects, _, err := p.client.ListObjects(ctx, excellentbooks.ListParams{Limit: 5000})
+	if err != nil {
+		return nil, p.wrapError("ListDimensions", err)
+	}
+	projects, _, err := p.client.ListProjects(ctx, excellentbooks.ListParams{Limit: 5000})
+	if err != nil {
+		return nil, p.wrapError("ListDimensions", err)
+	}
+	departments, _, err := p.client.ListDepartments(ctx, excellentbooks.ListParams{Limit: 5000})
+	if err != nil {
+		return nil, p.wrapError("ListDimensions", err)
+	}
+
+	list := &DimensionList{
+		Projects:    make([]Dimension, 0, len(projects)),
+		CostCenters: make([]Dimension, 0, len(objects)),
+		Departments: make([]Dimension, 0, len(departments)),
+	}
+	for _, p := range projects {
+		if p.Closed == "1" {
+			continue
+		}
+		list.Projects = append(list.Projects, Dimension{Code: p.Code, Name: p.Comment})
+	}
+	for _, o := range objects {
+		if o.Closed == "1" {
+			continue
+		}
+		list.CostCenters = append(list.CostCenters, Dimension{Code: o.Code, Name: o.Comment})
+	}
+	for _, d := range departments {
+		if d.Closed == "1" {
+			continue
+		}
+		list.Departments = append(list.Departments, Dimension{Code: d.Code, Name: d.Comment})
+	}
+	return list, nil
 }
 
 // --- Reports ---
@@ -492,8 +575,12 @@ func (p *excellentProvider) ListInvoicesSince(ctx context.Context, since time.Ti
 	return p.ListInvoices(ctx, ListInvoicesInput{PeriodStart: since, PeriodEnd: until})
 }
 
-func (p *excellentProvider) ListPaymentsSince(_ context.Context, _ time.Time, _ time.Time) ([]Payment, error) {
-	return nil, p.wrapError("ListPaymentsSince", fmt.Errorf("not yet implemented"))
+// ListPaymentsSince delegates to ListPayments with a date range.
+// Excellent Books does not expose change-tracking on payments via the REST API,
+// so this is document-date-based, not "changed since" semantics. Callers should
+// use a window large enough to catch any back-dated entries.
+func (p *excellentProvider) ListPaymentsSince(ctx context.Context, since time.Time, until time.Time) ([]Payment, error) {
+	return p.ListPayments(ctx, ListPaymentsInput{PeriodStart: since, PeriodEnd: until})
 }
 
 // --- Mapping helpers ---

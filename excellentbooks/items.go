@@ -51,6 +51,12 @@ func (c *Client) CreateItem(ctx context.Context, fields map[string]string) (*Ite
 	return &items[0], nil
 }
 
+// UpdateItem updates an existing item by code via PATCH.
+func (c *Client) UpdateItem(ctx context.Context, code string, fields map[string]string) error {
+	_, err := c.patch(ctx, registerItem, code, fields)
+	return err
+}
+
 func parseItemResponse(resp *Response) ([]Item, string, error) {
 	var envelope struct {
 		ResponseMeta

@@ -65,7 +65,7 @@ func (p ListParams) toValues() url.Values {
 
 // get performs a GET request and decodes the JSON response.
 func (c *Client) get(ctx context.Context, register string, params ListParams) (*Response, error) {
-	reqURL := fmt.Sprintf("%s/api/1/%s", c.baseURL, register)
+	reqURL := fmt.Sprintf("%s/api/%s/%s", c.baseURL, c.companyCode, register)
 	qp := params.toValues()
 	if len(qp) > 0 {
 		reqURL += "?" + qp.Encode()
@@ -85,7 +85,7 @@ func (c *Client) get(ctx context.Context, register string, params ListParams) (*
 
 // getOne performs a GET request for a single record by ID.
 func (c *Client) getOne(ctx context.Context, register string, id string) (*Response, error) {
-	reqURL := fmt.Sprintf("%s/api/1/%s/%s", c.baseURL, register, id)
+	reqURL := fmt.Sprintf("%s/api/%s/%s/%s", c.baseURL, c.companyCode, register, id)
 
 	slog.Info("excellentbooks request", "method", "GET", "register", register, "id", id)
 
@@ -101,7 +101,7 @@ func (c *Client) getOne(ctx context.Context, register string, id string) (*Respo
 
 // post performs a POST request with form-encoded body.
 func (c *Client) post(ctx context.Context, register string, fields map[string]string) (*Response, error) {
-	reqURL := fmt.Sprintf("%s/api/1/%s", c.baseURL, register)
+	reqURL := fmt.Sprintf("%s/api/%s/%s", c.baseURL, c.companyCode, register)
 
 	slog.Info("excellentbooks request", "method", "POST", "register", register, "fields", len(fields))
 
@@ -123,7 +123,7 @@ func (c *Client) post(ctx context.Context, register string, fields map[string]st
 
 // patch performs a PATCH request with form-encoded body.
 func (c *Client) patch(ctx context.Context, register string, id string, fields map[string]string) (*Response, error) {
-	reqURL := fmt.Sprintf("%s/api/1/%s/%s", c.baseURL, register, id)
+	reqURL := fmt.Sprintf("%s/api/%s/%s/%s", c.baseURL, c.companyCode, register, id)
 
 	slog.Info("excellentbooks request", "method", "PATCH", "register", register, "id", id)
 
@@ -178,6 +178,16 @@ func (c *Client) doRequest(req *http.Request) (*Response, error) {
 	// EB sometimes returns 200 with an error payload — check before treating as success
 	var errCheck errorResponse
 	if json.Unmarshal(body, &errCheck) == nil && errCheck.Error.Code != "" {
+		// Log the full body so we can see what EB really said. The structured
+		// description field is often terse / cryptic — the raw body usually
+		// contains the actual problem.
+		slog.Error("excellentbooks: API returned error payload",
+			"status", resp.StatusCode,
+			"error_code", errCheck.Error.Code,
+			"error_field", errCheck.Error.Field,
+			"error_description", errCheck.Error.Description,
+			"messages", errCheck.Messages,
+			"raw_body", string(body))
 		message := errCheck.Error.Description
 		if message == "" && len(errCheck.Messages) > 0 {
 			message = strings.Join(errCheck.Messages, "; ")

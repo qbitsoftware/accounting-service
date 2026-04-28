@@ -155,6 +155,59 @@ type ReceiptRow struct {
 	Comment   string `json:"Comment"`
 }
 
+// VATCode represents a VAT/tax code (register VATCodeBlock).
+// Standard Books returns these wrapped: { VATCodeBlock: { rows: [VATCode...] } }.
+type VATCode struct {
+	Code        string `json:"VATCode"`     // VAT code (e.g. "22", "24", "EU24")
+	Comment     string `json:"Comment"`     // Description (e.g. "Käibemaksuga 22%")
+	ExVatpr     string `json:"ExVatpr"`     // Exclusive VAT % (e.g. "22.00")
+	IncVatpr    string `json:"IncVatpr"`    // Inclusive VAT %
+	SalesVATAcc string `json:"SalesVATAcc"` // GL account for output VAT
+	PurchVATAcc string `json:"PurchVATAcc"` // GL account for input VAT
+	ValidUntil  string `json:"ValidUntil"`  // Empty = active; "YYYY-MM-DD" = expired after that date
+	ValidFrom   string `json:"ValidFrom"`
+}
+
+// GLAccount represents a chart-of-accounts entry (register AccVc).
+// Standard Books returns the account number under "AccNumber" and the active
+// flag under lowercase "blockedFlag" (0 = active, 1 = blocked).
+type GLAccount struct {
+	Code        string `json:"AccNumber"`
+	Comment     string `json:"Comment"`
+	AccType     string `json:"AccType"`
+	BlockedFlag string `json:"blockedFlag"`
+	Sequence    string `json:"@sequence"`
+	URL         string `json:"@url"`
+}
+
+// Object represents a cost center / dimension entry (register ObjVc).
+type Object struct {
+	Code     string `json:"Code"`
+	Comment  string `json:"Comment"`
+	OTCode   string `json:"OTCode"` // Object type code
+	Closed   string `json:"Closed"`
+	Sequence string `json:"@sequence"`
+	URL      string `json:"@url"`
+}
+
+// Project represents a project entry (register PRVc).
+type Project struct {
+	Code     string `json:"Code"`
+	Comment  string `json:"Comment"`
+	Closed   string `json:"Closed"`
+	Sequence string `json:"@sequence"`
+	URL      string `json:"@url"`
+}
+
+// Department represents a department entry (register DepVc).
+type Department struct {
+	Code     string `json:"Code"`
+	Comment  string `json:"Comment"`
+	Closed   string `json:"Closed"`
+	Sequence string `json:"@sequence"`
+	URL      string `json:"@url"`
+}
+
 // PurchaseInvoice represents a purchase invoice (register VIVc).
 type PurchaseInvoice struct {
 	SerNr      string `json:"SerNr"`

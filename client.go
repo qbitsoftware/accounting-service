@@ -19,15 +19,16 @@ type Config struct {
 // Client is the main entry point for the accounting SDK.
 // Access sub-services via the exported fields.
 type Client struct {
-	provider  Provider
-	Invoices  *InvoiceService
-	Customers *CustomerService
-	Payments  *PaymentService
-	Items     *ItemService
-	Purchases *PurchaseService
-	Taxes     *TaxService
-	Reports   *ReportService
-	Sync      *SyncService
+	provider     Provider
+	providerName string
+	Invoices     *InvoiceService
+	Customers    *CustomerService
+	Payments     *PaymentService
+	Items        *ItemService
+	Purchases    *PurchaseService
+	Taxes        *TaxService
+	Reports      *ReportService
+	Sync         *SyncService
 }
 
 // NewClient creates a new Client for the configured accounting provider.
@@ -49,15 +50,16 @@ func NewClient(cfg Config) (*Client, error) {
 	}
 
 	c := &Client{
-		provider:  p,
-		Invoices:  &InvoiceService{provider: p},
-		Customers: &CustomerService{provider: p},
-		Payments:  &PaymentService{provider: p},
-		Items:     &ItemService{provider: p},
-		Purchases: &PurchaseService{provider: p},
-		Taxes:     &TaxService{provider: p},
-		Reports:   &ReportService{provider: p},
-		Sync:      &SyncService{provider: p},
+		provider:     p,
+		providerName: cfg.Provider,
+		Invoices:     &InvoiceService{provider: p},
+		Customers:    &CustomerService{provider: p},
+		Payments:     &PaymentService{provider: p},
+		Items:        &ItemService{provider: p},
+		Purchases:    &PurchaseService{provider: p},
+		Taxes:        &TaxService{provider: p},
+		Reports:      &ReportService{provider: p},
+		Sync:         &SyncService{provider: p},
 	}
 	return c, nil
 }
@@ -65,4 +67,9 @@ func NewClient(cfg Config) (*Client, error) {
 // TestConnection verifies that the provider credentials are valid.
 func (c *Client) TestConnection(ctx context.Context) error {
 	return c.provider.TestConnection(ctx)
+}
+
+// Capabilities returns the feature set supported by the configured provider.
+func (c *Client) Capabilities() Capabilities {
+	return ProviderCapabilities(c.providerName)
 }

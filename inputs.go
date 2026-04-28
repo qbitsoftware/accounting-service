@@ -81,6 +81,7 @@ type UpdateCustomerInput struct {
 
 type CreatePaymentInput struct {
 	CustomerName string
+	CustomerCode string // Customer code/ID — required by Excellent Books receipts; Merit uses CustomerName
 	InvoiceNo    string
 	PaymentDate  time.Time
 	Amount       decimal.Decimal
