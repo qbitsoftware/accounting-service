@@ -115,7 +115,10 @@ func (c *Client) post(ctx context.Context, register string, fields map[string]st
 		return nil, fmt.Errorf("excellentbooks: create request: %w", err)
 	}
 	req.SetBasicAuth(c.username, c.password)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// Charset is critical: without it, Standard Books defaults to Latin-1 and
+	// percent-decoded UTF-8 bytes get mangled (e.g. "Õ" → "Ã" + control char,
+	// causing "code not in use" errors for Estonian-named items / customers).
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
 	req.Header.Set("Accept", "application/json")
 
 	return c.doRequest(req)
@@ -137,7 +140,10 @@ func (c *Client) patch(ctx context.Context, register string, id string, fields m
 		return nil, fmt.Errorf("excellentbooks: create request: %w", err)
 	}
 	req.SetBasicAuth(c.username, c.password)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// Charset is critical: without it, Standard Books defaults to Latin-1 and
+	// percent-decoded UTF-8 bytes get mangled (e.g. "Õ" → "Ã" + control char,
+	// causing "code not in use" errors for Estonian-named items / customers).
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
 	req.Header.Set("Accept", "application/json")
 
 	return c.doRequest(req)
