@@ -144,6 +144,12 @@ func (p *excellentProvider) CreateCustomer(ctx context.Context, input CreateCust
 	fields := map[string]string{
 		"set_field.Name": input.Name,
 	}
+	// EB rejects auto-generation if the CUVc register has no configured number
+	// series. Caller is expected to pass a stable Code so creation works
+	// regardless of the EB tenant's number-series setup.
+	if input.Code != "" {
+		fields["set_field.Code"] = input.Code
+	}
 	if input.Email != "" {
 		fields["set_field.eMail"] = input.Email
 	}

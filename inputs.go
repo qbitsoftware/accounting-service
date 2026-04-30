@@ -50,6 +50,13 @@ type CreateInvoiceLineInput struct {
 
 type CreateCustomerInput struct {
 	Name        string
+	// Code is the customer identifier in the provider's namespace. Optional —
+	// most providers (Merit) auto-assign their own ID. Required for Excellent
+	// Books when the EB instance has no number series configured for the
+	// Customer (CUVc) register; without it EB rejects with error 1557 ("Ei
+	// ole määratud numbriseerias"). Caller (klubio) generates a stable code
+	// from athlete profile ID / company registry code.
+	Code        string
 	RegNo       string
 	VATRegNo    string
 	Email       string
