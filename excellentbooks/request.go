@@ -63,6 +63,20 @@ func (p ListParams) toValues() url.Values {
 	return v
 }
 
+// encodeForm builds the form body using url.Values.Encode but then converts
+// "+" to "%20" for spaces. Standard Books' API parser doesn't decode "+" as
+// space (it stores the literal "+" in the field), even though "+" is valid per
+// RFC 3986 application/x-www-form-urlencoded. "%20" is universally accepted
+// and round-trips correctly. Any literal "+" in user input is already
+// percent-encoded as "%2B" by url.Values.Encode, so this replacement is safe.
+func encodeForm(fields map[string]string) string {
+	form := url.Values{}
+	for k, v := range fields {
+		form.Set(k, v)
+	}
+	return strings.ReplaceAll(form.Encode(), "+", "%20")
+}
+
 // get performs a GET request and decodes the JSON response.
 func (c *Client) get(ctx context.Context, register string, params ListParams) (*Response, error) {
 	reqURL := fmt.Sprintf("%s/api/%s/%s", c.baseURL, c.companyCode, register)
@@ -85,7 +99,11 @@ func (c *Client) get(ctx context.Context, register string, params ListParams) (*
 
 // getOne performs a GET request for a single record by ID.
 func (c *Client) getOne(ctx context.Context, register string, id string) (*Response, error) {
-	reqURL := fmt.Sprintf("%s/api/%s/%s/%s", c.baseURL, c.companyCode, register, id)
+	// PathEscape so codes containing UTF-8 (e.g. "Tõnu-12") or special chars
+	// like "+" reach EB intact. Without escaping, bytes go raw into the URL
+	// and EB's path parser mishandles them — same family of bug as the
+	// charset=UTF-8 fix on form bodies.
+	reqURL := fmt.Sprintf("%s/api/%s/%s/%s", c.baseURL, c.companyCode, register, url.PathEscape(id))
 
 	slog.Info("excellentbooks request", "method", "GET", "register", register, "id", id)
 
@@ -105,12 +123,7 @@ func (c *Client) post(ctx context.Context, register string, fields map[string]st
 
 	slog.Info("excellentbooks request", "method", "POST", "register", register, "fields", len(fields))
 
-	form := url.Values{}
-	for k, v := range fields {
-		form.Set(k, v)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(encodeForm(fields)))
 	if err != nil {
 		return nil, fmt.Errorf("excellentbooks: create request: %w", err)
 	}
@@ -126,16 +139,12 @@ func (c *Client) post(ctx context.Context, register string, fields map[string]st
 
 // patch performs a PATCH request with form-encoded body.
 func (c *Client) patch(ctx context.Context, register string, id string, fields map[string]string) (*Response, error) {
-	reqURL := fmt.Sprintf("%s/api/%s/%s/%s", c.baseURL, c.companyCode, register, id)
+	// PathEscape — see getOne above for rationale.
+	reqURL := fmt.Sprintf("%s/api/%s/%s/%s", c.baseURL, c.companyCode, register, url.PathEscape(id))
 
 	slog.Info("excellentbooks request", "method", "PATCH", "register", register, "id", id)
 
-	form := url.Values{}
-	for k, v := range fields {
-		form.Set(k, v)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, reqURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, reqURL, strings.NewReader(encodeForm(fields)))
 	if err != nil {
 		return nil, fmt.Errorf("excellentbooks: create request: %w", err)
 	}
