@@ -498,6 +498,11 @@ func (p *directoProvider) ListAccounts(ctx context.Context) ([]Account, error) {
 	return accounts, nil
 }
 
+// ListBanks is not implemented for Directo. Returns an empty slice.
+func (p *directoProvider) ListBanks(_ context.Context) ([]Bank, error) {
+	return nil, nil
+}
+
 func (p *directoProvider) ListDimensions(ctx context.Context) (*DimensionList, error) {
 	objects, err := p.client.ListObjects(ctx)
 	if err != nil {

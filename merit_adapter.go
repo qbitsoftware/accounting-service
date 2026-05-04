@@ -550,6 +550,26 @@ func (p *meritProvider) ListAccounts(ctx context.Context) ([]Account, error) {
 	return accounts, nil
 }
 
+func (p *meritProvider) ListBanks(ctx context.Context) ([]Bank, error) {
+	items, err := p.client.ListBanks(ctx)
+	if err != nil {
+		return nil, p.wrapError("ListBanks", err)
+	}
+
+	banks := make([]Bank, len(items))
+	for i, item := range items {
+		banks[i] = Bank{
+			ID:           item.BankID,
+			Name:         item.Name,
+			Description:  item.Description,
+			IBAN:         item.IBANCode,
+			AccountCode:  item.AccountCode,
+			CurrencyCode: item.CurrencyCode,
+		}
+	}
+	return banks, nil
+}
+
 func (p *meritProvider) ListDimensions(ctx context.Context) (*DimensionList, error) {
 	projects, err := p.client.ListProjects(ctx)
 	if err != nil {
@@ -777,15 +797,17 @@ func mapPaymentListItem(item merit.PaymentListItem) Payment {
 	}
 
 	return Payment{
-		ID:              item.PIHId,
-		DocumentNo:      item.DocumentNo,
-		DocumentDate:    parseDate(item.DocumentDate),
-		Amount:          item.Amount,
-		Currency:        item.CurrencyCode,
-		Direction:       mapPaymentDirection(item.Direction),
-		CounterPartID:   item.CounterPartID,
-		CounterPartName: item.CounterPartName,
-		InvoiceLinks:    links,
+		ID:               item.PIHId,
+		DocumentNo:       item.DocumentNo,
+		DocumentDate:     parseDate(item.DocumentDate),
+		Amount:           item.Amount,
+		Currency:         item.CurrencyCode,
+		Direction:        mapPaymentDirection(item.Direction),
+		CounterPartID:    item.CounterPartID,
+		CounterPartName:  item.CounterPartName,
+		InvoiceLinks:     links,
+		ExternalPayMode:  item.BankName,
+		ExternalBankName: item.BankName,
 	}
 }
 

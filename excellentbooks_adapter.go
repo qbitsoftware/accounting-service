@@ -317,13 +317,14 @@ func (p *excellentProvider) ListPayments(ctx context.Context, input ListPayments
 			}
 		}
 		payments[i] = Payment{
-			ID:            r.SerNr,
-			DocumentNo:    r.SerNr,
-			DocumentDate:  parseExcellentDate(r.TransDate),
-			Amount:        amount,
-			Currency:      r.PayCurCode,
-			Direction:     PaymentDirectionCustomer,
-			InvoiceLinks:  links,
+			ID:              r.SerNr,
+			DocumentNo:      r.SerNr,
+			DocumentDate:    parseExcellentDate(r.TransDate),
+			Amount:          amount,
+			Currency:        r.PayCurCode,
+			Direction:       PaymentDirectionCustomer,
+			InvoiceLinks:    links,
+			ExternalPayMode: r.PayMode,
 		}
 	}
 	return payments, nil
@@ -527,6 +528,13 @@ func (p *excellentProvider) ListAccounts(ctx context.Context) ([]Account, error)
 		})
 	}
 	return accounts, nil
+}
+
+// ListBanks is not supported by Excellent Books — the PayMode register is
+// not exposed via the API. Returns an empty slice so callers can treat this
+// as "no banks configured" rather than as an error.
+func (p *excellentProvider) ListBanks(_ context.Context) ([]Bank, error) {
+	return nil, nil
 }
 
 func (p *excellentProvider) ListDimensions(ctx context.Context) (*DimensionList, error) {

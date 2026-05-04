@@ -97,6 +97,16 @@ type Payment struct {
 	CounterPartID   string
 	CounterPartName string
 	InvoiceLinks    []PaymentInvoiceLink
+
+	// ExternalPayMode is the provider-specific payment-method identifier:
+	// for Excellent Books this is the PayMode code (e.g. "P1", "K"); for
+	// Merit it is the BankId GUID. Empty when the provider does not expose
+	// per-receipt method information.
+	ExternalPayMode string
+	// ExternalBankName is the human-readable bank label, populated when the
+	// provider exposes it directly. Merit returns this on getpayments;
+	// Excellent Books does not.
+	ExternalBankName string
 }
 
 type PaymentInvoiceLink struct {
@@ -110,6 +120,18 @@ type Tax struct {
 	Code string
 	Name string
 	Pct  decimal.Decimal
+}
+
+// Bank represents a bank account configured in the accounting system. Returned
+// by ListBanks. Merit's /getbanks exposes Name, IBAN, BankID; Excellent Books
+// has no equivalent register and ListBanks returns nil there.
+type Bank struct {
+	ID           string
+	Name         string
+	Description  string
+	IBAN         string
+	AccountCode  string
+	CurrencyCode string
 }
 
 type Account struct {

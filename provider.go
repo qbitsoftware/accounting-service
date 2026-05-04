@@ -46,6 +46,11 @@ type Provider interface {
 	ListTaxes(ctx context.Context) ([]Tax, error)
 	ListAccounts(ctx context.Context) ([]Account, error)
 	ListDimensions(ctx context.Context) (*DimensionList, error)
+	// ListBanks returns the bank accounts configured in the accounting
+	// system. Used to seed the bank-account mapping UI. Providers that do
+	// not expose a banks register (e.g. Excellent Books) return an empty
+	// slice.
+	ListBanks(ctx context.Context) ([]Bank, error)
 
 	// Reports
 	CustomerDebts(ctx context.Context, customerName string, overdueDays *int) ([]CustomerDebt, error)
