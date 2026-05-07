@@ -184,8 +184,8 @@ type GLAccount struct {
 type Object struct {
 	Code     string `json:"Code"`
 	Comment  string `json:"Comment"`
-	OTCode   string `json:"OTCode"` // Object type code
-	Closed   string `json:"Closed"`
+	OTCode   string `json:"OTCode"`        // Object type code
+	Closed   string `json:"TerminateFlag"` // EB returns "TerminateFlag", not "Closed"
 	Sequence string `json:"@sequence"`
 	URL      string `json:"@url"`
 }

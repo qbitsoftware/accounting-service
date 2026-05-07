@@ -239,12 +239,22 @@ func (p *excellentProvider) ListCustomers(ctx context.Context, _ ListCustomersIn
 }
 
 func (p *excellentProvider) FindCustomerByEmail(ctx context.Context, email string) (*Customer, error) {
+	// An empty email must never match anyone. Lots of EB customer records
+	// don't have an email at all, so a naive "" == "" comparison would return
+	// an arbitrary customer to the caller. That silently broke the EB
+	// athlete-only flow (which intentionally passes no email) — it kept
+	// returning the first email-less customer in the register instead of
+	// creating / updating the K<athleteProfileID> record.
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return nil, &ProviderError{Provider: "excellentbooks", Op: "FindCustomerByEmail", Err: ErrNotFound}
+	}
+
 	items, _, err := p.client.ListCustomers(ctx, excellentbooks.ListParams{Limit: 5000})
 	if err != nil {
 		return nil, p.wrapError("FindCustomerByEmail", err)
 	}
 
-	email = strings.ToLower(strings.TrimSpace(email))
 	for _, item := range items {
 		if strings.ToLower(strings.TrimSpace(item.Email)) == email {
 			return mapExcellentCustomer(&item), nil
@@ -257,12 +267,16 @@ func (p *excellentProvider) FindCustomerByEmail(ctx context.Context, email strin
 // --- Payments ---
 
 func (p *excellentProvider) CreatePayment(ctx context.Context, input CreatePaymentInput) error {
+	// PayMode is a required field on EB receipts (IPVc); it's a code reference
+	// into the PayMode register. Caller must pass it via BankID — we surface a
+	// clear error here rather than letting EB reject with "field PayMode: ...".
+	if input.BankID == "" {
+		return p.wrapError("CreatePayment", fmt.Errorf("PayMode (BankID) is required for Excellent Books receipts"))
+	}
 	fields := map[string]string{
 		"set_field.TransDate": formatExcellentDate(input.PaymentDate),
 		"set_field.OKFlag":    "1",
-	}
-	if input.BankID != "" {
-		fields["set_field.PayMode"] = input.BankID
+		"set_field.PayMode":   input.BankID,
 	}
 	if input.Currency != "" {
 		fields["set_field.PayCurCode"] = input.Currency
@@ -401,6 +415,9 @@ func (p *excellentProvider) CreateCreditNote(ctx context.Context, input CreateCr
 	fields := map[string]string{
 		"set_field.InvDate":  formatExcellentDate(input.DocDate),
 		"set_field.CustCode": input.CustomerID,
+		"set_field.PayDeal":  deriveDaysUntilDue(input.DocDate, input.DueDate),
+		"set_field.InvType":  "3", // 3 = Kreeditarve (credit invoice)
+		"set_field.CredMark": "1",
 	}
 	if input.Currency != "" {
 		fields["set_field.CurncyCode"] = input.Currency

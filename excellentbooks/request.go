@@ -217,6 +217,19 @@ func (c *Client) doRequest(req *http.Request) (*Response, error) {
 
 	var result Response
 	if err := json.Unmarshal(body, &result); err != nil {
+		// EB's PATCH responses occasionally come back as malformed JSON
+		// (an unkeyed object literal inside `data`). The write itself has
+		// succeeded — status is 2xx and there's no error payload (checked
+		// above). Don't fail the operation; downstream callers that try to
+		// parse the body will get empty data and can handle it.
+		if req.Method == http.MethodPatch {
+			slog.Warn("excellentbooks: PATCH succeeded but response body was malformed; treating as success",
+				"method", req.Method,
+				"url", req.URL.String(),
+				"body_len", len(body),
+				"unmarshal_error", err)
+			return &Response{Data: []byte("{}")}, nil
+		}
 		return nil, fmt.Errorf("excellentbooks: unmarshal response: %w (body: %s)", err, string(body))
 	}
 
