@@ -19,3 +19,10 @@ func (s *TaxService) ListAccounts(ctx context.Context) ([]Account, error) {
 func (s *TaxService) ListDimensions(ctx context.Context) (*DimensionList, error) {
 	return s.provider.ListDimensions(ctx)
 }
+
+// ListPaymentTerms returns the payment-term codes configured in the
+// provider's register (e.g. Excellent Books "K" for cash). Providers without
+// a payment-term register (Merit) return an empty slice.
+func (s *TaxService) ListPaymentTerms(ctx context.Context) ([]PaymentTerm, error) {
+	return s.provider.ListPaymentTerms(ctx)
+}

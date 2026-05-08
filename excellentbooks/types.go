@@ -199,6 +199,19 @@ type Project struct {
 	URL      string `json:"@url"`
 }
 
+// PaymentTerm represents a payment-term register entry (register PDVc).
+// Standard Books returns: Code (2 chars), pdComment (description),
+// PDType (1=Regular, 2=Cash, 3=Credit, 4=Next month, ...), pdays (net days).
+type PaymentTerm struct {
+	Code      string `json:"Code"`
+	Comment   string `json:"pdComment"`
+	PDType    string `json:"PDType"`
+	NetDays   string `json:"pdays"`
+	Closed    string `json:"Closed"`
+	Sequence  string `json:"@sequence"`
+	URL       string `json:"@url"`
+}
+
 // Department represents a department entry (register DepVc).
 type Department struct {
 	Code     string `json:"Code"`

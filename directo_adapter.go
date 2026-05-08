@@ -503,6 +503,14 @@ func (p *directoProvider) ListBanks(_ context.Context) ([]Bank, error) {
 	return nil, nil
 }
 
+// ListPaymentTerms is not yet implemented for Directo. Returns an empty slice
+// so the Provider interface is satisfied; callers fall back to omitting the
+// field on push (Directo's invoice paymentterm attribute then defaults from
+// the customer record).
+func (p *directoProvider) ListPaymentTerms(_ context.Context) ([]PaymentTerm, error) {
+	return nil, nil
+}
+
 func (p *directoProvider) ListDimensions(ctx context.Context) (*DimensionList, error) {
 	objects, err := p.client.ListObjects(ctx)
 	if err != nil {

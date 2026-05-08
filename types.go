@@ -141,6 +141,18 @@ type Account struct {
 	Active bool
 }
 
+// PaymentTerm represents a payment-term entry from the accounting system's
+// register. For Excellent Books this maps to PDVc rows; Code is what the
+// invoice's PayDeal field references. PDType is provider-specific:
+// "1"=Regular net-days, "2"=Cash/immediate, "3"=Credit, "4"=Next month.
+// Providers without a payment-term register (Merit) return an empty slice.
+type PaymentTerm struct {
+	Code    string
+	Label   string
+	PDType  string
+	NetDays int
+}
+
 type CustomerDebt struct {
 	CustomerName string
 	CustomerID   string

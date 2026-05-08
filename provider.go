@@ -51,6 +51,11 @@ type Provider interface {
 	// not expose a banks register (e.g. Excellent Books) return an empty
 	// slice.
 	ListBanks(ctx context.Context) ([]Bank, error)
+	// ListPaymentTerms returns the payment-term codes the provider has
+	// configured (e.g. "K" for cash, "P14" for 14-day net). Used to populate
+	// the credit-note creation dropdown. Providers without a payment-term
+	// register (Merit) return an empty slice.
+	ListPaymentTerms(ctx context.Context) ([]PaymentTerm, error)
 
 	// Reports
 	CustomerDebts(ctx context.Context, customerName string, overdueDays *int) ([]CustomerDebt, error)

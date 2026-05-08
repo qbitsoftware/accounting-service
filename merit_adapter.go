@@ -550,6 +550,12 @@ func (p *meritProvider) ListAccounts(ctx context.Context) ([]Account, error) {
 	return accounts, nil
 }
 
+// ListPaymentTerms is a no-op for Merit. Merit invoices use a date-based
+// payment-due field rather than a code register, so there is nothing to list.
+func (p *meritProvider) ListPaymentTerms(_ context.Context) ([]PaymentTerm, error) {
+	return nil, nil
+}
+
 func (p *meritProvider) ListBanks(ctx context.Context) ([]Bank, error) {
 	items, err := p.client.ListBanks(ctx)
 	if err != nil {

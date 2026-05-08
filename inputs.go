@@ -150,6 +150,12 @@ type CreateCreditNoteInput struct {
 	Comment             string
 	FooterComment       string
 	OriginalInvoiceNo   string
+	// PaymentTermCode references a code in the provider's payment-term
+	// register (Excellent Books PDVc; e.g. "K" for cash). When set, the
+	// adapter forwards it as the invoice's PayDeal field. When empty, the
+	// adapter omits the field and the provider falls back to the customer's
+	// default payment term.
+	PaymentTermCode string
 }
 
 type CreatePurchaseInput struct {

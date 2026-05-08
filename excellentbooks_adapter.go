@@ -415,9 +415,13 @@ func (p *excellentProvider) CreateCreditNote(ctx context.Context, input CreateCr
 	fields := map[string]string{
 		"set_field.InvDate":  formatExcellentDate(input.DocDate),
 		"set_field.CustCode": input.CustomerID,
-		"set_field.PayDeal":  deriveDaysUntilDue(input.DocDate, input.DueDate),
 		"set_field.InvType":  "3", // 3 = Kreeditarve (credit invoice)
 		"set_field.CredMark": "1",
+	}
+	if input.PaymentTermCode != "" {
+		// PayDeal is a reference into the PDVc register (e.g. "K" for cash).
+		// When unset, EB falls back to the customer's default term.
+		fields["set_field.PayDeal"] = input.PaymentTermCode
 	}
 	if input.Currency != "" {
 		fields["set_field.CurncyCode"] = input.Currency
@@ -434,6 +438,12 @@ func (p *excellentProvider) CreateCreditNote(ctx context.Context, input CreateCr
 		fields[prefix+".Price"] = line.UnitPrice.String()
 		if line.TaxID != "" {
 			fields[prefix+".VATCode"] = line.TaxID
+		}
+		if line.AccountCode != "" {
+			fields[prefix+".SalesAcc"] = line.AccountCode
+		}
+		if line.Description != "" {
+			fields[prefix+".Spec"] = line.Description
 		}
 	}
 	fields["set_field.OKFlag"] = "1"
@@ -523,6 +533,32 @@ func (p *excellentProvider) ListTaxes(ctx context.Context) ([]Tax, error) {
 		})
 	}
 	return taxes, nil
+}
+
+func (p *excellentProvider) ListPaymentTerms(ctx context.Context) ([]PaymentTerm, error) {
+	rows, _, err := p.client.ListPaymentTerms(ctx, excellentbooks.ListParams{Limit: 1000})
+	if err != nil {
+		return nil, p.wrapError("ListPaymentTerms", err)
+	}
+	terms := make([]PaymentTerm, 0, len(rows))
+	for _, r := range rows {
+		// Skip rows with empty code (would crash Radix Select on the frontend).
+		if r.Code == "" {
+			continue
+		}
+		// Skip rows marked closed/inactive in the register.
+		if r.Closed != "" && r.Closed != "0" {
+			continue
+		}
+		days, _ := strconv.Atoi(r.NetDays)
+		terms = append(terms, PaymentTerm{
+			Code:    r.Code,
+			Label:   r.Comment,
+			PDType:  r.PDType,
+			NetDays: days,
+		})
+	}
+	return terms, nil
 }
 
 func (p *excellentProvider) ListAccounts(ctx context.Context) ([]Account, error) {
