@@ -99,6 +99,10 @@ type CreatePaymentInput struct {
 type ListInvoicesInput struct {
 	PeriodStart time.Time
 	PeriodEnd   time.Time
+	// CustomerCode restricts the result to invoices belonging to a specific
+	// customer card. Currently honored by Excellent Books only — Merit/Directo
+	// ignore it and return the full date-range result.
+	CustomerCode string
 }
 
 type ListPaymentsInput struct {

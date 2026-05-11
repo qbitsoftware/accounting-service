@@ -107,6 +107,12 @@ func (p *excellentProvider) ListInvoices(ctx context.Context, input ListInvoices
 			params.Range += formatExcellentDate(input.PeriodEnd)
 		}
 	}
+	if input.CustomerCode != "" {
+		if params.Filter == nil {
+			params.Filter = map[string]string{}
+		}
+		params.Filter["CustCode"] = input.CustomerCode
+	}
 
 	items, _, err := p.client.ListInvoices(ctx, params)
 	if err != nil {
@@ -236,6 +242,25 @@ func (p *excellentProvider) ListCustomers(ctx context.Context, _ ListCustomersIn
 		customers[i] = *mapExcellentCustomer(&items[i])
 	}
 	return customers, nil
+}
+
+// GetCustomer fetches a single EB customer card by code. Returns
+// ProviderError{Err: ErrNotFound} when the card doesn't exist.
+func (p *excellentProvider) GetCustomer(ctx context.Context, id string) (*Customer, error) {
+	if strings.TrimSpace(id) == "" {
+		return nil, &ProviderError{Provider: "excellentbooks", Op: "GetCustomer", Err: ErrNotFound}
+	}
+	cust, err := p.client.GetCustomer(ctx, id)
+	if err != nil {
+		// Normalize 404 from the raw client to ErrNotFound so callers can
+		// use IsNotFound() without depending on the HTTP layer.
+		var apiErr *excellentbooks.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
+			return nil, &ProviderError{Provider: "excellentbooks", Op: "GetCustomer", Err: ErrNotFound}
+		}
+		return nil, p.wrapError("GetCustomer", err)
+	}
+	return mapExcellentCustomer(cust), nil
 }
 
 func (p *excellentProvider) FindCustomerByEmail(ctx context.Context, email string) (*Customer, error) {

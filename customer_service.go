@@ -18,6 +18,12 @@ func (s *CustomerService) List(ctx context.Context, input ListCustomersInput) ([
 	return s.provider.ListCustomers(ctx, input)
 }
 
+// Get fetches a single customer by its provider-side ID/code. Returns
+// ErrNotFound-wrapped error when the customer doesn't exist.
+func (s *CustomerService) Get(ctx context.Context, id string) (*Customer, error) {
+	return s.provider.GetCustomer(ctx, id)
+}
+
 // FindOrCreate searches for a customer by email and returns it if found,
 // otherwise creates a new customer with the provided input.
 // If the existing customer has a blank or email-fallback name, it updates it.

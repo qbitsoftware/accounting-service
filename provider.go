@@ -22,6 +22,10 @@ type Provider interface {
 	UpdateCustomer(ctx context.Context, input UpdateCustomerInput) error
 	ListCustomers(ctx context.Context, input ListCustomersInput) ([]Customer, error)
 	FindCustomerByEmail(ctx context.Context, email string) (*Customer, error)
+	// GetCustomer fetches a single customer card by its provider-side ID/code.
+	// Supported by Excellent Books (code-keyed register); Merit/Directo return
+	// a "not supported" error.
+	GetCustomer(ctx context.Context, id string) (*Customer, error)
 
 	// Payments
 	CreatePayment(ctx context.Context, input CreatePaymentInput) error

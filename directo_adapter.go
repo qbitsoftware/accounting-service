@@ -243,6 +243,12 @@ func (p *directoProvider) ListCustomers(ctx context.Context, input ListCustomers
 	return customers, nil
 }
 
+// GetCustomer is not supported by Directo via this adapter — the preview
+// flow that needs it is EB-specific. Stub returns a not-supported error.
+func (p *directoProvider) GetCustomer(_ context.Context, _ string) (*Customer, error) {
+	return nil, p.wrapError("GetCustomer", fmt.Errorf("not supported by Directo API"))
+}
+
 func (p *directoProvider) FindCustomerByEmail(ctx context.Context, email string) (*Customer, error) {
 	// Try REST API email filter first
 	items, err := p.client.GetCustomerByEmail(ctx, email)

@@ -266,6 +266,13 @@ func (p *meritProvider) ListCustomers(ctx context.Context, input ListCustomersIn
 	return customers, nil
 }
 
+// GetCustomer is not supported by Merit Aktiva — its API doesn't expose a
+// fetch-by-ID endpoint for customers in a way the preview flow can use.
+// Callers should rely on FindCustomerByEmail / ListCustomers instead.
+func (p *meritProvider) GetCustomer(_ context.Context, _ string) (*Customer, error) {
+	return nil, p.wrapError("GetCustomer", fmt.Errorf("not supported by Merit Aktiva API"))
+}
+
 func (p *meritProvider) FindCustomerByEmail(ctx context.Context, email string) (*Customer, error) {
 	items, err := p.client.ListCustomers(ctx, merit.ListCustomersParams{})
 	if err != nil {
