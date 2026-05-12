@@ -223,11 +223,19 @@ func (c *Client) doRequest(req *http.Request) (*Response, error) {
 		// above). Don't fail the operation; downstream callers that try to
 		// parse the body will get empty data and can handle it.
 		if req.Method == http.MethodPatch {
+			// Log the raw body so we can diagnose whether EB actually
+			// rejected the change (silently) vs succeeded with a truncated
+			// response. Bounded to first 500 bytes to keep log lines sane.
+			rawSnippet := string(body)
+			if len(rawSnippet) > 500 {
+				rawSnippet = rawSnippet[:500] + "...(truncated)"
+			}
 			slog.Warn("excellentbooks: PATCH succeeded but response body was malformed; treating as success",
 				"method", req.Method,
 				"url", req.URL.String(),
 				"body_len", len(body),
-				"unmarshal_error", err)
+				"unmarshal_error", err,
+				"raw_body", rawSnippet)
 			return &Response{Data: []byte("{}")}, nil
 		}
 		return nil, fmt.Errorf("excellentbooks: unmarshal response: %w (body: %s)", err, string(body))
