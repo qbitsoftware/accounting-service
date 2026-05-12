@@ -8,7 +8,42 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
+)
+
+// extractNestedPATCHError pulls EB error code/field/message out of the
+// nested-error PATCH response shape (`{"data":{"messages":[...],"error":{"@code":"...","@field":"..."}}}`).
+// Often the body is also truncated (missing closing brace), so we can't
+// rely on json.Unmarshal — regex extraction is the only reliable path.
+// Returns ("","","") when the body doesn't match the pattern.
+func extractNestedPATCHError(body []byte) (code, field, message string) {
+	s := string(body)
+	if !strings.Contains(s, `"error"`) {
+		return "", "", ""
+	}
+	if m := nestedErrCodeRe.FindStringSubmatch(s); len(m) == 2 {
+		code = m[1]
+	}
+	if m := nestedErrFieldRe.FindStringSubmatch(s); len(m) == 2 {
+		field = m[1]
+	}
+	if m := nestedErrMsgRe.FindStringSubmatch(s); len(m) == 2 {
+		message = m[1]
+	}
+	if code == "" {
+		return "", "", ""
+	}
+	if message == "" && field != "" {
+		message = "field " + field + " validation failed (code " + code + ")"
+	}
+	return code, field, message
+}
+
+var (
+	nestedErrCodeRe  = regexp.MustCompile(`"@code"\s*:\s*"([^"]*)"`)
+	nestedErrFieldRe = regexp.MustCompile(`"@field"\s*:\s*"([^"]*)"`)
+	nestedErrMsgRe   = regexp.MustCompile(`"messages"\s*:\s*\[\s*"([^"]*)"`)
 )
 
 // APIError represents an error response from the Excellent Books API.
@@ -223,6 +258,28 @@ func (c *Client) doRequest(req *http.Request) (*Response, error) {
 		// above). Don't fail the operation; downstream callers that try to
 		// parse the body will get empty data and can handle it.
 		if req.Method == http.MethodPatch {
+			// Before giving up and treating as success, scan the raw body
+			// for the nested-error shape EB sometimes returns on PATCH
+			// rejections: `{"data":{"messages":[...],"error":{"@code":"1256","@field":"PayDeal"}}}`
+			// (often truncated, so a strict JSON unmarshal fails — but the
+			// substring is still parseable enough to extract the code +
+			// field with regex). Without this branch, real EB validation
+			// errors get logged as "treating as success" and callers have
+			// no idea their write was rejected.
+			if errCode, errField, errMsg := extractNestedPATCHError(body); errCode != "" {
+				slog.Warn("excellentbooks: PATCH rejected with nested-error payload",
+					"method", req.Method,
+					"url", req.URL.String(),
+					"error_code", errCode,
+					"error_field", errField,
+					"message", errMsg)
+				return nil, &APIError{
+					StatusCode: resp.StatusCode,
+					Message:    errMsg,
+					ErrorCode:  errCode,
+					ErrorField: errField,
+				}
+			}
 			// Log the raw body so we can diagnose whether EB actually
 			// rejected the change (silently) vs succeeded with a truncated
 			// response. Bounded to first 500 bytes to keep log lines sane.
