@@ -389,7 +389,13 @@ type InvoiceRow struct {
 
 // ItemRef identifies an item/product in an invoice row.
 type ItemRef struct {
-	Code           string `json:"Code"`
+	// Code is the article reference in Merit's item register. Optional —
+	// Merit instances configured for free-text lines accept invoices with
+	// no Code, only Description. But strict-mode instances (Polish region,
+	// some Estonian setups) reject empty Code with "Artiklil koodiga  on
+	// andmed puudulikud". omitempty drops the field when blank so Merit's
+	// validator doesn't try to interpret "" as a code.
+	Code           string `json:"Code,omitempty"`
 	Description    string `json:"Description"`
 	Type           *int   `json:"Type,omitempty"`
 	UOMName        string `json:"UOMName,omitempty"`
