@@ -3,6 +3,7 @@ package accounting
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 var (
@@ -38,4 +39,23 @@ func IsAuthFailed(err error) bool {
 
 func IsRateLimit(err error) bool {
 	return errors.Is(err, ErrRateLimit)
+}
+
+// IsCustomerExistsError reports whether err is a Merit "customer already
+// exists" error. Merit returns these as plain-text body containing
+// "custexists" rather than a structured status — string matching is the
+// only reliable signal today.
+func IsCustomerExistsError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "custexists")
+}
+
+// IsDuplicateInvoiceError reports whether err signals that the provider
+// already has an invoice with the same number. Merit returns "Korduv arve"
+// (Estonian); other providers may surface English variants — we match both.
+func IsDuplicateInvoiceError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "korduv arve") || strings.Contains(msg, "duplicate invoice")
 }

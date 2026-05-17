@@ -372,7 +372,11 @@ type InvoiceRow struct {
 	Price           decimal.Decimal `json:"Price,omitempty"`
 	DiscountPct     decimal.Decimal `json:"DiscountPct,omitempty"`
 	DiscountAmount  decimal.Decimal `json:"DiscountAmount,omitempty"`
-	TaxID           string          `json:"TaxId"`
+	// TaxID must be omitted from the payload when empty — Merit's parser
+	// tries to interpret literal "" as a Guid and rejects with
+	// "Unrecognized Guid format". An absent TaxId lets Merit apply the
+	// customer/item default.
+	TaxID           string          `json:"TaxId,omitempty"`
 	LocationCode    string          `json:"LocationCode,omitempty"`
 	DepartmentCode  string          `json:"DepartmentCode,omitempty"`
 	GLAccountCode   string          `json:"GLAccountCode,omitempty"`
