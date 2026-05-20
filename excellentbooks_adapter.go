@@ -419,6 +419,16 @@ func (p *excellentProvider) ListItems(ctx context.Context, _ ListItemsInput) ([]
 	return result, nil
 }
 
+// UpdateItem updates an existing INVc item in Excellent Books. Field coverage
+// is intentionally narrower than the Merit equivalent: callers today use the
+// EB CreateItem flow from the klubio frontend (the "Create in EB and add"
+// two-step) and don't issue updates against existing INVc rows. If/when that
+// changes — e.g. backend takes over the article-registry write path for EB
+// the way it already does for Merit — extend this to thread SalesAccountCode
+// (and any other fields) through. The underlying EB API accepts arbitrary
+// "set_field.X" pairs, so wiring more fields here is a one-line change per
+// field. Leaving it minimal until a real caller needs it to avoid drift
+// between the SDK and the actual edit surfaces.
 func (p *excellentProvider) UpdateItem(ctx context.Context, input UpdateItemInput) error {
 	fields := map[string]string{}
 	if input.Description != nil {

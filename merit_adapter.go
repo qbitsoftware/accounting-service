@@ -397,6 +397,9 @@ func (p *meritProvider) UpdateItem(ctx context.Context, input UpdateItemInput) e
 	if input.TaxID != nil {
 		req.TaxID = *input.TaxID
 	}
+	if input.SalesAccountCode != nil {
+		req.SalesAccountCode = *input.SalesAccountCode
+	}
 
 	err := p.client.UpdateItem(ctx, req)
 	return p.wrapError("UpdateItem", err)

@@ -124,11 +124,12 @@ type CreateItemInput struct {
 }
 
 type UpdateItemInput struct {
-	ID          string
-	Code        *string
-	Description *string
-	SalesPrice  *decimal.Decimal
-	TaxID       *string
+	ID               string
+	Code             *string
+	Description      *string
+	SalesPrice       *decimal.Decimal
+	TaxID            *string
+	SalesAccountCode *string
 }
 
 type ListItemsInput struct {
