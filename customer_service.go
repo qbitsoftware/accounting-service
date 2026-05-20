@@ -44,3 +44,56 @@ func (s *CustomerService) FindOrCreate(ctx context.Context, email string, input 
 	}
 	return s.provider.CreateCustomer(ctx, input)
 }
+
+// CustomerListCache lets FindOrCreateWithFallback amortise the broad-search
+// List call across many resolutions in a single batch (one List per batch
+// rather than one per fallback). Pass nil if you only resolve one customer.
+//
+// Implementations are expected to be request-scoped — the cache should fetch
+// the customer list on first call and return the same slice on subsequent
+// calls within the same batch. Concurrency is the implementation's concern;
+// the SDK does not lock.
+type CustomerListCache interface {
+	List(ctx context.Context, client *Client) ([]Customer, error)
+}
+
+// FindOrCreateCustomerWithFallback wraps Client.Customers.FindOrCreate with
+// a "customer already exists but couldn't be found by email" fallback. Some
+// providers (notably Merit) signal IsCustomerExistsError when a customer with
+// matching identifiers exists but the email lookup didn't find them — common
+// when the stored email differs from the one we're searching with, or when
+// providers index strictly. In that case we list all customers and rematch
+// by RegNo / email / normalized name (see MatchCustomerFromList).
+//
+// searchEmail is the email passed to FindCustomerByEmail. input is the full
+// CreateCustomerInput used both for create and (via input.Name + input.RegNo)
+// for the fallback rematch.
+//
+// cache may be nil. When non-nil, it provides the customer list for the
+// rematch; this saves one List call per resolution in batch operations.
+func FindOrCreateCustomerWithFallback(
+	ctx context.Context,
+	client *Client,
+	searchEmail string,
+	input CreateCustomerInput,
+	cache CustomerListCache,
+) (*Customer, error) {
+	c, err := client.Customers.FindOrCreate(ctx, searchEmail, input)
+	if err == nil {
+		return c, nil
+	}
+	if !IsCustomerExistsError(err) {
+		return nil, err
+	}
+
+	var customers []Customer
+	if cache != nil {
+		customers, err = cache.List(ctx, client)
+	} else {
+		customers, err = client.Customers.List(ctx, ListCustomersInput{})
+	}
+	if err != nil {
+		return nil, err
+	}
+	return MatchCustomerFromList(customers, input.Name, input.RegNo, searchEmail)
+}
