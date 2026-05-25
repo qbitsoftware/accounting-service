@@ -145,6 +145,10 @@ func (p *directoProvider) DeleteInvoice(ctx context.Context, id string) error {
 	return p.wrapError("DeleteInvoice", err)
 }
 
+func (p *directoProvider) SendAsEInvoice(_ context.Context, _ string, _ bool) error {
+	return &ProviderError{Provider: "directo", Op: "SendAsEInvoice", Err: ErrFeatureNotSupported}
+}
+
 // --- Customers ---
 
 func (p *directoProvider) CreateCustomer(ctx context.Context, input CreateCustomerInput) (*Customer, error) {

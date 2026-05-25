@@ -16,6 +16,18 @@ type Provider interface {
 	ListInvoices(ctx context.Context, input ListInvoicesInput) ([]Invoice, error)
 	FindInvoiceByRef(ctx context.Context, refStr string) (*Invoice, error)
 	DeleteInvoice(ctx context.Context, id string) error
+	// SendAsEInvoice transmits an already-created provider-side invoice
+	// as an e-invoice (e-arve) over the operator network. The recipient's
+	// delivery preferences are read from the provider-side customer
+	// record (set on CreateCustomer/UpdateCustomer). Pass the ID returned
+	// by CreateInvoice or CreateCreditNote.
+	//
+	// Errors:
+	//   - ErrEInvoiceNotSupported → recipient is not e-invoice capable
+	//   - ErrFeatureNotSupported  → this Provider cannot send e-invoices
+	//
+	// Capability flag: Capabilities.SupportsEInvoiceSend.
+	SendAsEInvoice(ctx context.Context, providerInvoiceID string, deliveryNote bool) error
 
 	// Customers
 	CreateCustomer(ctx context.Context, input CreateCustomerInput) (*Customer, error)

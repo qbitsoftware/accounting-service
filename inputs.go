@@ -70,6 +70,18 @@ type CreateCustomerInput struct {
 	PaymentDays *int
 	Contact     string
 	RefNoBase   string // Base for per-customer reference number generation in Merit
+
+	// E-invoice (e-arve) routing — provider must support it for these to
+	// take effect (see Capabilities.SupportsEInvoiceSend). Today Merit-only.
+	// EInvoiceOperator: 1=none, 2=Omniva, 3=Bank full, 4=Bank limited
+	// (Merit's EInvOperator enum). EInvoicePayerID is the payer-side bank
+	// reference the recipient registered for their standing-payment
+	// agreement. EInvoiceApix is the APIX operator address for non-bank
+	// operator routing. Providers that don't support e-invoices ignore
+	// these silently.
+	EInvoiceOperator *int
+	EInvoicePayerID  string
+	EInvoiceApix     string
 }
 
 type UpdateCustomerInput struct {
@@ -84,6 +96,13 @@ type UpdateCustomerInput struct {
 	RegNo       *string
 	VATRegNo    *string
 	RefNoBase   *string // Base for per-customer reference number generation in Merit
+
+	// E-invoice routing — pointer types so callers can distinguish
+	// "leave alone" (nil) from "clear" (pointer to zero value). Same
+	// semantics as CreateCustomerInput.
+	EInvoiceOperator *int
+	EInvoicePayerID  *string
+	EInvoiceApix     *string
 }
 
 type CreatePaymentInput struct {

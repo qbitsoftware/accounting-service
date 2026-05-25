@@ -43,3 +43,22 @@ func (c *Client) GetInvoicePDF(ctx context.Context, params GetInvoicePDFParams) 
 func (c *Client) DeleteInvoice(ctx context.Context, params DeleteInvoiceParams) error {
 	return c.post(ctx, "v1/deleteinvoice", params, nil)
 }
+
+// SendInvoiceAsEInvoice transmits an already-created Merit invoice as an
+// e-invoice over the recipient's configured operator network (Omniva /
+// banks / APIX). Routing is read from the Customer record's EInvOperator
+// field — the send call itself only takes the invoice SIHId.
+//
+// Returns the raw response from Merit:
+//   - "OK"         → Merit accepted handoff
+//   - "api-noeinv" → the receiver is not e-invoice capable
+//
+// Merit does not document delivery confirmation; this call is
+// fire-and-forget from the caller's perspective.
+func (c *Client) SendInvoiceAsEInvoice(ctx context.Context, sihID string, deliveryNote bool) (string, error) {
+	req := struct {
+		Id        string `json:"Id"`
+		DelivNote bool   `json:"DelivNote"`
+	}{Id: sihID, DelivNote: deliveryNote}
+	return c.postRaw(ctx, "v2/sendinvoiceaseinv", req)
+}

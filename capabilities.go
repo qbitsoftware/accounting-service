@@ -17,6 +17,7 @@ type Capabilities struct {
 	SupportsVendorPayments   bool `json:"supports_vendor_payments"`
 	SupportsFindInvoiceByRef bool `json:"supports_find_invoice_by_ref"`
 	SupportsIncrementalSync  bool `json:"supports_incremental_sync"` // True if ListInvoicesSince / ListPaymentsSince track changes (not just doc-date range)
+	SupportsEInvoiceSend     bool `json:"supports_e_invoice_send"`    // True if Provider.SendAsEInvoice is wired (Merit only today)
 }
 
 // ProviderCapabilities returns the capability set for a given provider name.
@@ -40,6 +41,7 @@ func ProviderCapabilities(provider string) Capabilities {
 			SupportsVendorPayments:   true,
 			SupportsFindInvoiceByRef: false,
 			SupportsIncrementalSync:  true,
+			SupportsEInvoiceSend:     true,
 		}
 	case "excellentbooks":
 		return Capabilities{

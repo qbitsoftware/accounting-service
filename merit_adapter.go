@@ -171,6 +171,21 @@ func (p *meritProvider) DeleteInvoice(ctx context.Context, id string) error {
 	return p.wrapError("DeleteInvoice", err)
 }
 
+func (p *meritProvider) SendAsEInvoice(ctx context.Context, providerInvoiceID string, deliveryNote bool) error {
+	status, err := p.client.SendInvoiceAsEInvoice(ctx, providerInvoiceID, deliveryNote)
+	if err != nil {
+		return p.wrapError("SendAsEInvoice", err)
+	}
+	switch status {
+	case "OK":
+		return nil
+	case "api-noeinv":
+		return &ProviderError{Provider: "merit", Op: "SendAsEInvoice", Err: ErrEInvoiceNotSupported}
+	default:
+		return p.wrapError("SendAsEInvoice", fmt.Errorf("unexpected response: %q", status))
+	}
+}
+
 // --- Customers ---
 
 func (p *meritProvider) CreateCustomer(ctx context.Context, input CreateCustomerInput) (*Customer, error) {
@@ -189,6 +204,9 @@ func (p *meritProvider) CreateCustomer(ctx context.Context, input CreateCustomer
 		PaymentDeadLine: input.PaymentDays,
 		Contact:         input.Contact,
 		RefNoBase:       input.RefNoBase,
+		EInvOperator:    input.EInvoiceOperator,
+		EInvPaymId:      input.EInvoicePayerID,
+		ApixEInv:        input.EInvoiceApix,
 	}
 
 	resp, err := p.client.CreateCustomer(ctx, req)
@@ -247,6 +265,15 @@ func (p *meritProvider) UpdateCustomer(ctx context.Context, input UpdateCustomer
 	}
 	if input.RefNoBase != nil {
 		req.RefNoBase = *input.RefNoBase
+	}
+	if input.EInvoiceOperator != nil {
+		req.EInvOperator = input.EInvoiceOperator
+	}
+	if input.EInvoicePayerID != nil {
+		req.EInvPaymId = *input.EInvoicePayerID
+	}
+	if input.EInvoiceApix != nil {
+		req.ApixEInv = *input.EInvoiceApix
 	}
 
 	err := p.client.UpdateCustomer(ctx, req)

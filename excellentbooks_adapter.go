@@ -130,6 +130,10 @@ func (p *excellentProvider) DeleteInvoice(_ context.Context, _ string) error {
 	return p.wrapError("DeleteInvoice", fmt.Errorf("not supported by Excellent Books API"))
 }
 
+func (p *excellentProvider) SendAsEInvoice(_ context.Context, _ string, _ bool) error {
+	return &ProviderError{Provider: "excellentbooks", Op: "SendAsEInvoice", Err: ErrFeatureNotSupported}
+}
+
 func (p *excellentProvider) FindInvoiceByRef(ctx context.Context, refStr string) (*Invoice, error) {
 	items, _, err := p.client.ListInvoices(ctx, excellentbooks.ListParams{
 		Limit:  1,
