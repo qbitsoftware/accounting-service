@@ -132,9 +132,12 @@ func TestCreateCreditNote_EmitsSalesAccPerRow(t *testing.T) {
 		t.Errorf("row 0 Spec = %q, want Õppemaks aprill", got)
 	}
 
-	// Credit-row marker.
-	if got := form.Get("set_row_field.0.stp"); got != "3" {
-		t.Errorf("row 0 stp = %q, want 3 (credit row)", got)
+	// Credit-note rows are NORMAL article rows (stp=1). The credit direction
+	// comes from the document (InvType=3 / CredMark=1). stp=3 is a different
+	// "credit row" mechanism that EB rejects with 1030 "Täitmata kanded ei ole
+	// lubatud" — see the adapter comment. This guards against reintroducing it.
+	if got := form.Get("set_row_field.0.stp"); got != "1" {
+		t.Errorf("row 0 stp = %q, want 1 (normal article row on a credit invoice)", got)
 	}
 }
 

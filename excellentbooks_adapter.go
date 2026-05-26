@@ -467,7 +467,11 @@ func (p *excellentProvider) CreateCreditNote(ctx context.Context, input CreateCr
 
 	for i, line := range input.Lines {
 		prefix := fmt.Sprintf("set_row_field.%d", i)
-		fields[prefix+".stp"] = "3" // credit row type
+		// Normal article row (Tavarida). The credit direction comes from the
+		// document type (InvType=3 / CredMark=1), NOT the row type. stp=3 is a
+		// different "credit row" mechanism that makes EB reject the row with
+		// 1030 "Täitmata kanded ei ole lubatud" (anchored to ArtCode).
+		fields[prefix+".stp"] = "1"
 		fields[prefix+".ArtCode"] = line.Code
 		fields[prefix+".Quant"] = line.Quantity.String()
 		fields[prefix+".Price"] = line.UnitPrice.String()
