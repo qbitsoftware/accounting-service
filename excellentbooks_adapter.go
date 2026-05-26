@@ -465,24 +465,43 @@ func (p *excellentProvider) CreateCreditNote(ctx context.Context, input CreateCr
 		fields["set_field.CredInv"] = input.OriginalInvoiceNo
 	}
 
-	for i, line := range input.Lines {
-		prefix := fmt.Sprintf("set_row_field.%d", i)
-		// Credit row (stp=3) with negative quantity — verified against the live
-		// EB API as the accepted kreeditarve row format. (stp=1 normal rows
-		// reject negative quantities with "Negatiivsed kogused keelatud"; stp=3
-		// is the credit-row type that pairs with the negative qty here.)
-		fields[prefix+".stp"] = "3"
-		// OrdRow links a stp=3 credit row to the invoice it credits (the credited
-		// invoice's SerNr). EB instances configured to require the credit↔original
-		// link reject the row otherwise — 1119 "Sisesta krediteeritava arve number"
-		// or 1030 "Täitmata kanded ei ole lubatud" on ArtCode. Verified against the
-		// live EB API: OrdRow = credited invoice SerNr is accepted.
-		if input.OriginalInvoiceNo != "" {
-			fields[prefix+".OrdRow"] = input.OriginalInvoiceNo
-		}
+	// EB credit invoices (kreeditarve) are built the way EB itself builds them —
+	// confirmed by dumping real EB credit invoices (cmd/eb-credit-dump) and by the
+	// accepted variant in cmd/eb-credit-probe:
+	//
+	//   • ONE leading link row, stp=3, carrying ONLY OrdRow = credited invoice
+	//     SerNr (same value as the header CredInv). No article, no qty, no price.
+	//     This is the row that ties the credit to its original.
+	//   • THEN the article rows, stp=1 (Tavarida / normal row), mirroring the
+	//     ORIGINAL invoice lines with their original POSITIVE quantities and
+	//     original prices. The credit DIRECTION comes from InvType=3 / CredMark=1
+	//     on the header, NOT from the row sign — so rows stay positive and stp=1
+	//     (stp=1 rows reject negative quantities with "Negatiivsed kogused keelatud").
+	//
+	// Two pure variants we shipped earlier both fail and must NOT be reintroduced:
+	//   - stp=3 + article + negative qty on EVERY row → 1030 "Täitmata kanded ei
+	//     ole lubatud" (single row), 22049 "Erinevate arvete krediteerimine pole
+	//     lubatud" (multi-row), 1119 "Sisesta krediteeritava arve number".
+	//   - stp=1 everywhere with no link row → 1030 on ArtCode (no credit↔original link).
+	//
+	// The caller (merit_sync) hands us credit-note convention lines: Quantity is
+	// negated (e.g. -1) and UnitPrice is the ORIGINAL line price. We negate the
+	// quantity back to the original positive value here; the price is already the
+	// original (the upstream double-negation cancels), so a discount line keeps its
+	// own negative price.
+	rowIdx := 0
+	if input.OriginalInvoiceNo != "" {
+		fields["set_row_field.0.stp"] = "3"
+		fields["set_row_field.0.OrdRow"] = input.OriginalInvoiceNo
+		rowIdx = 1
+	}
+	for _, line := range input.Lines {
+		prefix := fmt.Sprintf("set_row_field.%d", rowIdx)
+		rowIdx++
+		fields[prefix+".stp"] = "1"
 		fields[prefix+".ArtCode"] = line.Code
-		fields[prefix+".Quant"] = line.Quantity.String()
-		fields[prefix+".Price"] = line.UnitPrice.String()
+		fields[prefix+".Quant"] = line.Quantity.Neg().String() // credit-note -1 → original +1
+		fields[prefix+".Price"] = line.UnitPrice.String()       // already the original line price
 		if line.TaxID != "" {
 			fields[prefix+".VATCode"] = line.TaxID
 		}

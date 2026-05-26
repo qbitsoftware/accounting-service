@@ -79,6 +79,9 @@ func TestCreateCreditNote_EmitsSalesAccPerRow(t *testing.T) {
 	defer srv.Close()
 	p := providerWith(srv.URL)
 
+	// Inputs use the credit-note convention merit_sync actually sends: negated
+	// quantity (-1) and the ORIGINAL line price (positive for a normal sale line,
+	// negative for a discount/manual-adjustment line).
 	_, err := p.CreateCreditNote(context.Background(), CreateCreditNoteInput{
 		CustomerID:        "C1",
 		InvoiceNo:         "KRARVE000001",
@@ -87,18 +90,18 @@ func TestCreateCreditNote_EmitsSalesAccPerRow(t *testing.T) {
 		Lines: []CreateInvoiceLineInput{
 			{
 				Code:        "TUITION",
-				Quantity:    decimal.NewFromInt(1),
-				UnitPrice:   decimal.NewFromInt(-99),
+				Quantity:    decimal.NewFromInt(-1),
+				UnitPrice:   decimal.NewFromInt(99),
 				TaxID:       "0",
 				AccountCode: "3702",
 				Description: "Õppemaks aprill",
 			},
 			{
 				Code:        "FEE",
-				Quantity:    decimal.NewFromInt(1),
-				UnitPrice:   decimal.NewFromInt(-10),
+				Quantity:    decimal.NewFromInt(-1),
+				UnitPrice:   decimal.NewFromInt(-10), // discount/manual-adjustment line keeps its negative price
 				AccountCode: "3705",
-				Description: "Liitumistasu",
+				Description: "Käsitsi muudatus",
 			},
 		},
 	})
@@ -119,33 +122,58 @@ func TestCreateCreditNote_EmitsSalesAccPerRow(t *testing.T) {
 		t.Errorf("CredInv missing or wrong: %q", form.Get("set_field.CredInv"))
 	}
 
-	// THE OrdRow guard — every stp=3 credit row must link to the credited
-	// invoice's SerNr, or EB (when configured to require it) rejects with 1119
-	// "Sisesta krediteeritava arve number" / 1030 "Täitmata kanded" on ArtCode.
+	// THE link-row guard — a single leading stp=3 row carries ONLY OrdRow =
+	// credited SerNr (no article). This is how real EB credit invoices link to
+	// their original (cmd/eb-credit-dump). Without it EB rejects with 1030
+	// "Täitmata kanded" / 1119 "Sisesta krediteeritava arve number".
+	if got := form.Get("set_row_field.0.stp"); got != "3" {
+		t.Errorf("row 0 stp = %q, want 3 (link row)", got)
+	}
 	if got := form.Get("set_row_field.0.OrdRow"); got != "200000" {
 		t.Errorf("row 0 OrdRow = %q, want 200000 (credited invoice SerNr)", got)
 	}
-	if got := form.Get("set_row_field.1.OrdRow"); got != "200000" {
-		t.Errorf("row 1 OrdRow = %q, want 200000", got)
+	if got := form.Get("set_row_field.0.ArtCode"); got != "" {
+		t.Errorf("row 0 ArtCode = %q, want empty — link row carries no article", got)
 	}
 
-	// THE bug guard — both rows must carry SalesAcc.
-	if got := form.Get("set_row_field.0.SalesAcc"); got != "3702" {
-		t.Errorf("row 0 SalesAcc = %q, want 3702 — credit notes must reverse the same account", got)
+	// THE multi-row guard — article rows are stp=1 (normal) so EB does not read
+	// each as its own credit link (that triggered 22049 "Erinevate arvete
+	// krediteerimine pole lubatud" when stp=3+OrdRow was on every row).
+	if got := form.Get("set_row_field.1.stp"); got != "1" {
+		t.Errorf("row 1 stp = %q, want 1 (normal article row)", got)
 	}
-	if got := form.Get("set_row_field.1.SalesAcc"); got != "3705" {
-		t.Errorf("row 1 SalesAcc = %q, want 3705", got)
+	if got := form.Get("set_row_field.2.stp"); got != "1" {
+		t.Errorf("row 2 stp = %q, want 1 (normal article row)", got)
+	}
+	if got := form.Get("set_row_field.1.OrdRow"); got != "" {
+		t.Errorf("row 1 OrdRow = %q, want empty — only the link row carries OrdRow", got)
+	}
+
+	// Article rows mirror the ORIGINAL lines: positive quantity, original price.
+	if got := form.Get("set_row_field.1.ArtCode"); got != "TUITION" {
+		t.Errorf("row 1 ArtCode = %q, want TUITION", got)
+	}
+	if got := form.Get("set_row_field.1.Quant"); got != "1" {
+		t.Errorf("row 1 Quant = %q, want 1 (original positive qty)", got)
+	}
+	if got := form.Get("set_row_field.1.Price"); got != "99" {
+		t.Errorf("row 1 Price = %q, want 99 (original line price)", got)
+	}
+	if got := form.Get("set_row_field.2.Price"); got != "-10" {
+		t.Errorf("row 2 Price = %q, want -10 (discount line keeps its sign)", got)
+	}
+
+	// THE bug guard — both article rows must carry SalesAcc.
+	if got := form.Get("set_row_field.1.SalesAcc"); got != "3702" {
+		t.Errorf("row 1 SalesAcc = %q, want 3702 — credit notes must reverse the same account", got)
+	}
+	if got := form.Get("set_row_field.2.SalesAcc"); got != "3705" {
+		t.Errorf("row 2 SalesAcc = %q, want 3705", got)
 	}
 
 	// Spec (description) must also be carried — same forgotten-field family.
-	if got := form.Get("set_row_field.0.Spec"); got != "Õppemaks aprill" {
-		t.Errorf("row 0 Spec = %q, want Õppemaks aprill", got)
-	}
-
-	// Credit-row marker. Verified against the live EB API: kreeditarve rows use
-	// stp=3 with negative quantity (stp=1 normal rows reject negative qty).
-	if got := form.Get("set_row_field.0.stp"); got != "3" {
-		t.Errorf("row 0 stp = %q, want 3 (credit row)", got)
+	if got := form.Get("set_row_field.1.Spec"); got != "Õppemaks aprill" {
+		t.Errorf("row 1 Spec = %q, want Õppemaks aprill", got)
 	}
 }
 

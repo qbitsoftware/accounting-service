@@ -122,14 +122,15 @@ func TestCreateCreditNote_EmitsArtCodePerRow(t *testing.T) {
 	defer srv.Close()
 	p := providerWith(srv.URL)
 
+	// merit_sync convention: negated quantity, original price.
 	_, err := p.CreateCreditNote(context.Background(), CreateCreditNoteInput{
 		CustomerID:        "C1",
 		OriginalInvoiceNo: "200000",
 		Lines: []CreateInvoiceLineInput{
 			{
 				Code:        "ÕPPEMAKS",
-				Quantity:    decimal.NewFromInt(1),
-				UnitPrice:   decimal.NewFromInt(-99),
+				Quantity:    decimal.NewFromInt(-1),
+				UnitPrice:   decimal.NewFromInt(99),
 				AccountCode: "3702",
 			},
 		},
@@ -139,8 +140,9 @@ func TestCreateCreditNote_EmitsArtCodePerRow(t *testing.T) {
 	}
 
 	form := parseFormBody(t, *captured)
-	if got := form.Get("set_row_field.0.ArtCode"); got != "ÕPPEMAKS" {
-		t.Errorf("row 0 ArtCode = %q, want ÕPPEMAKS — credit-note rows must carry the article code", got)
+	// Row 0 is the stp=3 link row (OrdRow only); the article row follows at index 1.
+	if got := form.Get("set_row_field.1.ArtCode"); got != "ÕPPEMAKS" {
+		t.Errorf("row 1 ArtCode = %q, want ÕPPEMAKS — credit-note article rows must carry the article code", got)
 	}
 }
 
