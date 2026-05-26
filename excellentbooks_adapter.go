@@ -472,6 +472,14 @@ func (p *excellentProvider) CreateCreditNote(ctx context.Context, input CreateCr
 		// reject negative quantities with "Negatiivsed kogused keelatud"; stp=3
 		// is the credit-row type that pairs with the negative qty here.)
 		fields[prefix+".stp"] = "3"
+		// OrdRow links a stp=3 credit row to the invoice it credits (the credited
+		// invoice's SerNr). EB instances configured to require the credit↔original
+		// link reject the row otherwise — 1119 "Sisesta krediteeritava arve number"
+		// or 1030 "Täitmata kanded ei ole lubatud" on ArtCode. Verified against the
+		// live EB API: OrdRow = credited invoice SerNr is accepted.
+		if input.OriginalInvoiceNo != "" {
+			fields[prefix+".OrdRow"] = input.OriginalInvoiceNo
+		}
 		fields[prefix+".ArtCode"] = line.Code
 		fields[prefix+".Quant"] = line.Quantity.String()
 		fields[prefix+".Price"] = line.UnitPrice.String()

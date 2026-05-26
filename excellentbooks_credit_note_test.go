@@ -119,6 +119,16 @@ func TestCreateCreditNote_EmitsSalesAccPerRow(t *testing.T) {
 		t.Errorf("CredInv missing or wrong: %q", form.Get("set_field.CredInv"))
 	}
 
+	// THE OrdRow guard — every stp=3 credit row must link to the credited
+	// invoice's SerNr, or EB (when configured to require it) rejects with 1119
+	// "Sisesta krediteeritava arve number" / 1030 "Täitmata kanded" on ArtCode.
+	if got := form.Get("set_row_field.0.OrdRow"); got != "200000" {
+		t.Errorf("row 0 OrdRow = %q, want 200000 (credited invoice SerNr)", got)
+	}
+	if got := form.Get("set_row_field.1.OrdRow"); got != "200000" {
+		t.Errorf("row 1 OrdRow = %q, want 200000", got)
+	}
+
 	// THE bug guard — both rows must carry SalesAcc.
 	if got := form.Get("set_row_field.0.SalesAcc"); got != "3702" {
 		t.Errorf("row 0 SalesAcc = %q, want 3702 — credit notes must reverse the same account", got)
