@@ -9,8 +9,24 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 )
+
+// dumpFields renders a field map as a stable, sorted "k=v | k=v" string so the
+// exact payload sent to EB is visible in logs (compare against the API docs).
+func dumpFields(fields map[string]string) string {
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+fields[k])
+	}
+	return strings.Join(parts, " | ")
+}
 
 // extractNestedPATCHError pulls EB error code/field/message out of the
 // nested-error PATCH response shape (`{"data":{"messages":[...],"error":{"@code":"...","@field":"..."}}}`).
@@ -157,6 +173,9 @@ func (c *Client) post(ctx context.Context, register string, fields map[string]st
 	reqURL := fmt.Sprintf("%s/api/%s/%s", c.baseURL, c.companyCode, register)
 
 	slog.Info("excellentbooks request", "method", "POST", "register", register, "fields", len(fields))
+	// Full payload so the exact set_field/set_row_field format can be compared
+	// against the EB API docs when debugging (e.g. credit-note row rejections).
+	slog.Info("excellentbooks request payload", "register", register, "form", dumpFields(fields))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(encodeForm(fields)))
 	if err != nil {
@@ -178,6 +197,7 @@ func (c *Client) patch(ctx context.Context, register string, id string, fields m
 	reqURL := fmt.Sprintf("%s/api/%s/%s/%s", c.baseURL, c.companyCode, register, url.PathEscape(id))
 
 	slog.Info("excellentbooks request", "method", "PATCH", "register", register, "id", id)
+	slog.Info("excellentbooks request payload", "register", register, "id", id, "form", dumpFields(fields))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, reqURL, strings.NewReader(encodeForm(fields)))
 	if err != nil {
@@ -210,6 +230,9 @@ func (c *Client) doRequest(req *http.Request) (*Response, error) {
 
 	// Try to parse error response
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// Log the full body so the actual EB error is captured even on non-2xx
+		// (the structured error fields are often terse/empty).
+		slog.Error("excellentbooks: non-2xx response", "status", resp.StatusCode, "raw_body", string(body))
 		var errResp errorResponse
 		if json.Unmarshal(body, &errResp) == nil && errResp.Error.Code != "" {
 			return nil, &APIError{

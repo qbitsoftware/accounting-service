@@ -467,11 +467,11 @@ func (p *excellentProvider) CreateCreditNote(ctx context.Context, input CreateCr
 
 	for i, line := range input.Lines {
 		prefix := fmt.Sprintf("set_row_field.%d", i)
-		// Normal article row (Tavarida). The credit direction comes from the
-		// document type (InvType=3 / CredMark=1), NOT the row type. stp=3 is a
-		// different "credit row" mechanism that makes EB reject the row with
-		// 1030 "Täitmata kanded ei ole lubatud" (anchored to ArtCode).
-		fields[prefix+".stp"] = "1"
+		// Credit row (stp=3) with negative quantity — verified against the live
+		// EB API as the accepted kreeditarve row format. (stp=1 normal rows
+		// reject negative quantities with "Negatiivsed kogused keelatud"; stp=3
+		// is the credit-row type that pairs with the negative qty here.)
+		fields[prefix+".stp"] = "3"
 		fields[prefix+".ArtCode"] = line.Code
 		fields[prefix+".Quant"] = line.Quantity.String()
 		fields[prefix+".Price"] = line.UnitPrice.String()
