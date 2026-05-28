@@ -4,6 +4,7 @@
 *.dll
 *.so
 *.dylib
+sa-probe
 
 # Test binary
 *.test

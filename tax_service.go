@@ -20,6 +20,13 @@ func (s *TaxService) ListDimensions(ctx context.Context) (*DimensionList, error)
 	return s.provider.ListDimensions(ctx)
 }
 
+// ListBanks returns the bank accounts configured in the provider's register
+// (e.g. SmartAccounts settings/bankaccounts, Merit /getbanks). Providers with
+// no bank register (Excellent Books) return an empty slice.
+func (s *TaxService) ListBanks(ctx context.Context) ([]Bank, error) {
+	return s.provider.ListBanks(ctx)
+}
+
 // ListPaymentTerms returns the payment-term codes configured in the
 // provider's register (e.g. Excellent Books "K" for cash). Providers without
 // a payment-term register (Merit) return an empty slice.

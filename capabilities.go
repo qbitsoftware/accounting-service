@@ -56,6 +56,21 @@ func ProviderCapabilities(provider string) Capabilities {
 			SupportsFindInvoiceByRef: true,
 			SupportsIncrementalSync:  false,
 		}
+	case "smartaccounts":
+		return Capabilities{
+			SupportsInvoicePDF:       true,
+			SupportsInvoiceDelete:    true,
+			SupportsPaymentDelete:    true,
+			SupportsPurchaseCreate:   true,
+			SupportsPurchaseDelete:   true,
+			SupportsTaxList:          true,
+			SupportsAccountList:      true,
+			SupportsDimensions:       true,
+			SupportsCustomerDebts:    true,
+			SupportsVendorPayments:   true,
+			SupportsFindInvoiceByRef: true,
+			SupportsIncrementalSync:  true,
+		}
 	case "directo":
 		return Capabilities{
 			SupportsInvoicePDF:       false,
