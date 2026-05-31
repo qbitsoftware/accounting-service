@@ -29,6 +29,7 @@ type Client struct {
 	Taxes        *TaxService
 	Reports      *ReportService
 	Sync         *SyncService
+	Prepayments  *PrepaymentService
 }
 
 // NewClient creates a new Client for the configured accounting provider.
@@ -62,6 +63,7 @@ func NewClient(cfg Config) (*Client, error) {
 		Taxes:        &TaxService{provider: p},
 		Reports:      &ReportService{provider: p},
 		Sync:         &SyncService{provider: p},
+		Prepayments:  &PrepaymentService{provider: p, providerName: cfg.Provider},
 	}
 	return c, nil
 }

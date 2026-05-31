@@ -153,6 +153,11 @@ type ReceiptRow struct {
 	RecCurncy string `json:"RecCurncy"`
 	Objects   string `json:"Objects"`
 	Comment   string `json:"Comment"`
+	// CUPNr is the prepayment (ettemaks) number. A receipt row carrying a CUPNr
+	// and no InvoiceNr is an unallocated customer advance; a row with both an
+	// InvoiceNr (positive) and a CUPNr (negative) draws a prepayment onto an
+	// invoice. EB requires CUPNr on any unallocated row (error 1289).
+	CUPNr string `json:"CUPNr"`
 }
 
 // VATCode represents a VAT/tax code (register VATCodeBlock).

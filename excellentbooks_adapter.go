@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -453,11 +454,15 @@ func (p *excellentProvider) CreateCreditNote(ctx context.Context, input CreateCr
 		"set_field.InvType":  "3", // 3 = Kreeditarve (credit invoice)
 		"set_field.CredMark": "1",
 	}
-	if input.PaymentTermCode != "" {
-		// PayDeal is a reference into the PDVc register (e.g. "K" for cash).
-		// When unset, EB falls back to the customer's default term.
-		fields["set_field.PayDeal"] = input.PaymentTermCode
-	}
+	// IMPORTANT: do NOT set PayDeal on a credit note. A cash-type payment term
+	// (e.g. "S" = Sularaha) makes EB reclassify the kreeditarve into a CASH NOTE
+	// (InvType 2, posted to the cash account) and SILENTLY STRIP the OrdRow link
+	// row — so the credit no longer reduces its original invoice (it stays open).
+	// Confirmed against the test instance: PayDeal="" → InvType 3 + OrdRow kept +
+	// invoice closes; PayDeal="S" → InvType 2 + OrdRow dropped + invoice stays
+	// open. The payment term on a credit note is cosmetic, so we omit it and let
+	// EB keep it a proper credit invoice. (input.PaymentTermCode is intentionally
+	// ignored here; the regular CreateInvoice path still honours PayDeal.)
 	if input.Currency != "" {
 		fields["set_field.CurncyCode"] = input.Currency
 	}
@@ -517,6 +522,14 @@ func (p *excellentProvider) CreateCreditNote(ctx context.Context, input CreateCr
 	inv, err := p.client.CreateInvoice(ctx, fields)
 	if err != nil {
 		return nil, p.wrapError("CreateCreditNote", err)
+	}
+	// Defensive guard: a proper kreeditarve must come back as InvType 3. If EB
+	// reclassified it (e.g. a cash-type payment term turns it into an InvType 2
+	// cash note and strips the OrdRow link), it will NOT reduce the original
+	// invoice and the invoice will silently stay open. Surface it loudly.
+	if inv.InvType != "3" {
+		slog.Warn("excellentbooks: credit note did not stay a kreeditarve (InvType != 3) — it will NOT reduce the original invoice, which stays open",
+			"ser_nr", inv.SerNr, "inv_type", inv.InvType, "cred_inv", input.OriginalInvoiceNo)
 	}
 	return mapExcellentInvoice(inv), nil
 }
