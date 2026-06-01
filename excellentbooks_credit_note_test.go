@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/qbitsoftware/accounting-service/excellentbooks"
 	"github.com/shopspring/decimal"
@@ -201,15 +202,18 @@ func TestCreateCreditNote_EmitsPayDealWhenSet(t *testing.T) {
 	}
 }
 
-func TestCreateCreditNote_OmitsPayDealWhenUnset(t *testing.T) {
+func TestCreateCreditNote_FallsBackToDaysPayDealWhenUnset(t *testing.T) {
 	captured, srv := captureFormBody(t)
 	defer srv.Close()
 	p := providerWith(srv.URL)
 
+	// PaymentTermCode empty — the adapter must still emit a PayDeal (some live EB
+	// accounts reject a kreeditarve with no term: "Sisesta tasumistingimus"). It
+	// falls back to the numeric net-days term, which is a credit term (non-cash)
+	// so the document stays an InvType 3 kreeditarve. With zero dates that's the
+	// "14" default from deriveDaysUntilDue.
 	_, err := p.CreateCreditNote(context.Background(), CreateCreditNoteInput{
 		CustomerID: "C1",
-		// PaymentTermCode intentionally empty — adapter must NOT emit
-		// PayDeal so EB falls back to the customer's default term.
 		Lines: []CreateInvoiceLineInput{{
 			Code: "X", Quantity: decimal.NewFromInt(1), UnitPrice: decimal.NewFromInt(-1),
 		}},
@@ -219,8 +223,33 @@ func TestCreateCreditNote_OmitsPayDealWhenUnset(t *testing.T) {
 	}
 
 	form := parseFormBody(t, *captured)
-	if _, present := form["set_field.PayDeal"]; present {
-		t.Errorf("PayDeal must be absent when PaymentTermCode is empty, got %q", form.Get("set_field.PayDeal"))
+	if got := form.Get("set_field.PayDeal"); got != "14" {
+		t.Errorf("PayDeal = %q, want 14 (days fallback when PaymentTermCode unset)", got)
+	}
+}
+
+func TestCreateCreditNote_DerivesDaysPayDealFromDueDate(t *testing.T) {
+	captured, srv := captureFormBody(t)
+	defer srv.Close()
+	p := providerWith(srv.URL)
+
+	doc := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC)
+	_, err := p.CreateCreditNote(context.Background(), CreateCreditNoteInput{
+		CustomerID: "C1",
+		DocDate:    doc,
+		DueDate:    due,
+		Lines: []CreateInvoiceLineInput{{
+			Code: "X", Quantity: decimal.NewFromInt(1), UnitPrice: decimal.NewFromInt(-1),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateCreditNote: %v", err)
+	}
+
+	form := parseFormBody(t, *captured)
+	if got := form.Get("set_field.PayDeal"); got != "7" {
+		t.Errorf("PayDeal = %q, want 7 (days between doc and due)", got)
 	}
 }
 

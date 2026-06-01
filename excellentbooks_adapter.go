@@ -454,15 +454,30 @@ func (p *excellentProvider) CreateCreditNote(ctx context.Context, input CreateCr
 		"set_field.InvType":  "3", // 3 = Kreeditarve (credit invoice)
 		"set_field.CredMark": "1",
 	}
-	// IMPORTANT: do NOT set PayDeal on a credit note. A cash-type payment term
-	// (e.g. "S" = Sularaha) makes EB reclassify the kreeditarve into a CASH NOTE
-	// (InvType 2, posted to the cash account) and SILENTLY STRIP the OrdRow link
-	// row — so the credit no longer reduces its original invoice (it stays open).
-	// Confirmed against the test instance: PayDeal="" → InvType 3 + OrdRow kept +
-	// invoice closes; PayDeal="S" → InvType 2 + OrdRow dropped + invoice stays
-	// open. The payment term on a credit note is cosmetic, so we omit it and let
-	// EB keep it a proper credit invoice. (input.PaymentTermCode is intentionally
-	// ignored here; the regular CreateInvoice path still honours PayDeal.)
+	// PayDeal (payment term) handling on a kreeditarve is a tightrope:
+	//
+	//   • A CASH-type term (e.g. "S" = Sularaha) makes EB reclassify the credit
+	//     into a CASH NOTE (InvType 2, posted to the cash account) and SILENTLY
+	//     STRIP the OrdRow link row — the credit then no longer reduces its
+	//     original invoice (it stays open). Confirmed on the test instance:
+	//     PayDeal="S" → InvType 2 + OrdRow dropped.
+	//   • But OMITTING PayDeal is not safe everywhere: some live EB accounts
+	//     require a term on every document and reject the post with
+	//     "Sisesta tasumistingimus" — and when the customer carries an open
+	//     ettemaks they additionally demand "Seo arve ettemaksuga!". The test
+	//     instance does not enforce this, which is why omission looked fine there.
+	//
+	// So we DO send PayDeal, but a non-cash one: an explicit PaymentTermCode when
+	// the caller set one, otherwise the same numeric net-days term the regular
+	// CreateInvoice path uses (deriveDaysUntilDue). A days term is a credit term,
+	// not cash, so the document stays an InvType 3 kreeditarve with its OrdRow
+	// link intact. The InvType!=3 guard below still catches a cash-type term that
+	// somehow slips through (e.g. a "S" PaymentTermCode passed by the caller).
+	payDeal := input.PaymentTermCode
+	if payDeal == "" {
+		payDeal = deriveDaysUntilDue(input.DocDate, input.DueDate)
+	}
+	fields["set_field.PayDeal"] = payDeal
 	if input.Currency != "" {
 		fields["set_field.CurncyCode"] = input.Currency
 	}
