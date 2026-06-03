@@ -45,8 +45,13 @@ type PrepaymentProvider interface {
 
 // Prepayment is a customer advance / on-account credit (ettemaks).
 type Prepayment struct {
-	// Number is the provider prepayment number (EB CUPNr).
-	Number       string
+	// Number is the provider prepayment number (EB CUPNr; Merit DocNo).
+	Number string
+	// DocID is the provider's internal document GUID, when it exposes a stable
+	// one (Merit getcustdebtrep DocId). EB leaves this empty — there Number
+	// (CUPNr) is the stable key. Prefer DocID for identity when present, since
+	// Merit DocNo is caller-assigned and need not be unique.
+	DocID        string
 	CustomerCode string
 	// Amount is the original advance; Remaining is the still-unapplied part.
 	Amount    decimal.Decimal

@@ -888,9 +888,10 @@ type CustomerDebtsParams struct {
 type CustomerDebtItem struct {
 	PartnerName  string          `json:"PartnerName"`
 	PartnerID    string          `json:"PartnerId"`
-	DocType      string          `json:"DocType"` // SO=offer, MA=invoice, SBx=initial balance
+	DocType      string          `json:"DocType"` // SO=offer, MA=invoice, BA=prepayment/advance, SBx=initial balance
 	DocDate      string          `json:"DocDate"`
 	DocNo        string          `json:"DocNo"`
+	DocID        string          `json:"DocId"`
 	RefNo        string          `json:"RefNo"`
 	DueDate      string          `json:"DueDate"`
 	TotalAmount  decimal.Decimal `json:"TotalAmount"`
