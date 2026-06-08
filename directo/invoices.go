@@ -45,6 +45,8 @@ type InvoiceXML struct {
 	VATRegNo     string `xml:"vatregno,attr,omitempty"`      // VAT registration number
 	CustomerRegNo  string `xml:"customer_regno,attr,omitempty"`  // company registration number
 	CustomerType   string `xml:"customer_type,attr,omitempty"`   // 0=company, 1=private, 2=government
+	Country        string `xml:"country,attr,omitempty"`         // inline customer country (e.g. "EE")
+	County         string `xml:"county,attr,omitempty"`          // inline customer tax region / Asumaa (e.g. "Harjumaa")
 
 	Rows invoiceRowsWrapper
 }

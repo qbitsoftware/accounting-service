@@ -14,6 +14,7 @@ type CreateInvoiceInput struct {
 	CustomerEmail       string
 	CustomerAddress     string
 	CustomerCountryCode string
+	CustomerCounty      string // Directo tax region / Asumaa for the inline customer (e.g. "Harjumaa")
 	CustomerType        string // Directo customer_type: "0"=company, "1"=private, "2"=government
 	DocDate             time.Time
 	DueDate             time.Time
@@ -25,6 +26,11 @@ type CreateInvoiceInput struct {
 	Comment             string
 	FooterComment       string
 	AutoConfirm         bool // If true, sets OKFlag=1 on the invoice (confirms immediately)
+	// PaymentTermCode references a code in the provider's payment-term register
+	// (Directo maksetingimus). Forwarded as the invoice's paymentterm attribute.
+	// When empty the provider falls back to the customer's default term — which
+	// Directo flags as required ("T-tingimus puudu"), so set it.
+	PaymentTermCode string
 }
 
 // LineDimension represents a dimension to attach to a Merit invoice row.
@@ -145,6 +151,7 @@ type CreateCreditNoteInput struct {
 	CustomerEmail       string
 	CustomerAddress     string
 	CustomerCountryCode string
+	CustomerCounty      string // Directo tax region / Asumaa for the inline customer
 	DocDate             time.Time
 	DueDate             time.Time
 	InvoiceNo           string

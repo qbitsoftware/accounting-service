@@ -75,12 +75,15 @@ func (p *directoProvider) CreateInvoice(ctx context.Context, input CreateInvoice
 		Deadline:      formatDirectoDate(input.DueDate),
 		Currency:      input.Currency,
 		Comment:       input.Comment,
+		PaymentTerm:   input.PaymentTermCode,
 		Confirm:       directoConfirmFlag(input.AutoConfirm),
 		Email:         input.CustomerEmail,
 		Address1:      input.CustomerAddress,
 		CustomerRegNo: input.CustomerRegNo,
 		VATRegNo:      input.CustomerVATNo,
 		CustomerType:  input.CustomerType,
+		Country:       input.CustomerCountryCode,
+		County:        input.CustomerCounty,
 		Rows:          directo.NewInvoiceRows(rows),
 	}
 
@@ -425,8 +428,14 @@ func (p *directoProvider) CreateCreditNote(ctx context.Context, input CreateCred
 		Deadline:     formatDirectoDate(input.DueDate),
 		Currency:     input.Currency,
 		Comment:      input.Comment,
+		PaymentTerm:  input.PaymentTermCode,
 		Confirm:      "1",
-		Rows:         directo.NewInvoiceRows(rows),
+		CustomerRegNo: input.CustomerRegNo,
+		Email:         input.CustomerEmail,
+		Address1:      input.CustomerAddress,
+		Country:       input.CustomerCountryCode,
+		County:        input.CustomerCounty,
+		Rows:          directo.NewInvoiceRows(rows),
 	}
 
 	_, err := p.client.CreateInvoice(ctx, inv, nil)
