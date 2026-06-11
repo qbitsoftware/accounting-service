@@ -110,17 +110,30 @@ func (c *xmlClient) xmlPut(ctx context.Context, what string, xmlData string, ext
 		}
 	}
 
-	// Check for error results
-	// Type 0 = success, Type 1 = failure (duplicate, validation), Type 5 = unauthorized
+	if err := xmlResultsError(results); err != nil {
+		return nil, err
+	}
+
+	return &results, nil
+}
+
+// xmlResultsError classifies an XML Direct response. Type "0" is the ONLY
+// success; any other non-empty type is a failure (1 = validation/duplicate,
+// 5 = unauthorized, 12 = missing document identificator, ...). The original
+// implementation special-cased 1 and 5 only, which let Directo errors like
+// type 12 pass as silent successes — the caller marked a receipt "synced"
+// that Directo never created. Empty type with no error attr is tolerated
+// for forward-compat with responses that omit the attribute on success.
+func xmlResultsError(results XMLResults) error {
 	for _, r := range results.Results {
 		if r.Type == "5" {
-			return nil, &APIError{
+			return &APIError{
 				StatusCode: 401,
 				Message:    r.Desc,
 				Source:     "xml",
 			}
 		}
-		if r.Type == "1" {
+		if r.Type != "" && r.Type != "0" {
 			msg := r.Desc
 			if msg == "" {
 				msg = r.Msg
@@ -128,22 +141,21 @@ func (c *xmlClient) xmlPut(ctx context.Context, what string, xmlData string, ext
 			if msg == "" {
 				msg = "operation failed"
 			}
-			return nil, &APIError{
+			return &APIError{
 				StatusCode: 400,
-				Message:    msg,
+				Message:    fmt.Sprintf("directo result type %s: %s", r.Type, msg),
 				Source:     "xml",
 			}
 		}
 		if r.Error != "" {
-			return nil, &APIError{
+			return &APIError{
 				StatusCode: 400,
 				Message:    r.Error,
 				Source:     "xml",
 			}
 		}
 	}
-
-	return &results, nil
+	return nil
 }
 
 // xmlGet performs a GET (read) operation via XML Direct.

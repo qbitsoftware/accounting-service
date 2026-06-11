@@ -95,11 +95,20 @@ type UpdateCustomerInput struct {
 type CreatePaymentInput struct {
 	CustomerName string
 	CustomerCode string // Customer code/ID — required by Excellent Books receipts; Merit uses CustomerName
-	InvoiceNo    string
-	PaymentDate  time.Time
-	Amount       decimal.Decimal
-	Currency     string
-	BankID       string
+	// PaymentNo is the receipt's own document number. REQUIRED for Directo:
+	// the XML Direct receipt import rejects documents without a number
+	// (result type 12, "Missing document identificator"). Callers should
+	// derive it deterministically (e.g. from the invoice number) so retries
+	// are idempotent.
+	PaymentNo   string
+	InvoiceNo   string
+	PaymentDate time.Time
+	Amount      decimal.Decimal
+	Currency    string
+	BankID      string
+	// AutoConfirm books the receipt immediately (Directo: kinnitatud).
+	// An unconfirmed receipt does not settle its invoice.
+	AutoConfirm bool
 }
 
 type ListInvoicesInput struct {

@@ -7,6 +7,8 @@ import (
 )
 
 // ReceiptXML represents a receipt/payment for XML Direct write operations.
+// Number is REQUIRED: Directo rejects a receipt without a document
+// identificator (result type 12, "Missing document identificator").
 type ReceiptXML struct {
 	XMLName      xml.Name         `xml:"receipt"`
 	Number       string           `xml:"number,attr,omitempty"`
@@ -14,7 +16,12 @@ type ReceiptXML struct {
 	Date         string           `xml:"date,attr"`
 	Currency     string           `xml:"currency,attr,omitempty"`
 	BankAccount  string           `xml:"bankaccount,attr,omitempty"`
-	Lines        []ReceiptLineXML `xml:"line"`
+	// Confirm "1" books the receipt immediately (kinnitatud). An
+	// unconfirmed receipt does NOT settle its invoice — someone has to
+	// press Kinnita in Directo's UI — so callers that want the invoice
+	// to flip to paid must set this.
+	Confirm string           `xml:"confirm,attr,omitempty"`
+	Lines   []ReceiptLineXML `xml:"line"`
 }
 
 // ReceiptLineXML represents a receipt line linking a payment to an invoice.

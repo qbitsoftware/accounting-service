@@ -297,10 +297,12 @@ func (p *directoProvider) CreatePayment(ctx context.Context, input CreatePayment
 		customer = input.CustomerName
 	}
 	receipt := directo.ReceiptXML{
+		Number:       input.PaymentNo,
 		CustomerCode: customer,
 		Date:         formatDirectoDate(input.PaymentDate),
 		Currency:     input.Currency,
 		BankAccount:  input.BankID,
+		Confirm:      directoConfirmFlag(input.AutoConfirm),
 		Lines: []directo.ReceiptLineXML{
 			{
 				InvoiceNo: input.InvoiceNo,
