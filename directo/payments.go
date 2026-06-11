@@ -6,29 +6,51 @@ import (
 	"net/url"
 )
 
-// ReceiptXML represents a receipt/payment for XML Direct write operations.
-// Number is REQUIRED: Directo rejects a receipt without a document
-// identificator (result type 12, "Missing document identificator").
+// receiptRowsWrapper wraps receipt rows per xml_IN_laekumised.xsd
+// (<rows><row .../></rows>).
+type receiptRowsWrapper struct {
+	XMLName xml.Name        `xml:"rows"`
+	Rows    []ReceiptRowXML `xml:"row"`
+}
+
+// ReceiptXML represents a receipt/payment ("laekumine") for XML Direct
+// write operations. Field names match the xml_IN_laekumised.xsd schema
+// exactly — the schema is strict and silently IGNORES anything it doesn't
+// recognise, so a wrong attribute name doesn't error, it just produces a
+// hollow document. Hard-won specifics:
+//   - Number is REQUIRED ("Missing document identificator", result type 12,
+//     without it) and must stay the same across re-sends of the document.
+//   - PaymentMode is the Tasumisviis register code. It determines the debit
+//     account; confirming fails with "Tasumisviisi ei leitud / Deebet on
+//     vale või puudu" when missing or unknown.
+//   - The customer and the settled invoice live on the ROW, not the header.
 type ReceiptXML struct {
-	XMLName      xml.Name         `xml:"receipt"`
-	Number       string           `xml:"number,attr,omitempty"`
-	CustomerCode string           `xml:"customer,attr"`
-	Date         string           `xml:"date,attr"`
-	Currency     string           `xml:"currency,attr,omitempty"`
-	BankAccount  string           `xml:"bankaccount,attr,omitempty"`
+	XMLName     xml.Name `xml:"receipt"`
+	Number      string   `xml:"number,attr"`
+	Date        string   `xml:"date,attr,omitempty"`
+	Description string   `xml:"description,attr,omitempty"`
+	PaymentMode string   `xml:"paymentmode,attr,omitempty"` // XSD: tasumisviis
 	// Confirm "1" books the receipt immediately (kinnitatud). An
 	// unconfirmed receipt does NOT settle its invoice — someone has to
 	// press Kinnita in Directo's UI — so callers that want the invoice
 	// to flip to paid must set this.
-	Confirm string           `xml:"confirm,attr,omitempty"`
-	Lines   []ReceiptLineXML `xml:"line"`
+	Confirm string `xml:"confirm,attr,omitempty"`
+	Rows    receiptRowsWrapper
 }
 
-// ReceiptLineXML represents a receipt line linking a payment to an invoice.
-type ReceiptLineXML struct {
-	XMLName   xml.Name `xml:"line"`
-	InvoiceNo string   `xml:"invoiceno,attr"`
-	Amount    string   `xml:"amount,attr"`
+// NewReceiptRows is a convenience constructor for the rows wrapper.
+func NewReceiptRows(rows []ReceiptRowXML) receiptRowsWrapper {
+	return receiptRowsWrapper{Rows: rows}
+}
+
+// ReceiptRowXML is one receipt row per xml_IN_laekumised.xsd — allocates a
+// received amount against one sales invoice.
+type ReceiptRowXML struct {
+	InvoiceNo    string `xml:"invoice,attr,omitempty"`      // XSD: invoice (arvenumber)
+	CustomerCode string `xml:"customer,attr,omitempty"`     // XSD: customer (klient_kood)
+	Payment      string `xml:"payment,attr,omitempty"`      // XSD: payment (tasuti)
+	Received     string `xml:"received,attr,omitempty"`     // XSD: received (summa_p)
+	BankCurrency string `xml:"bankcurrency,attr,omitempty"` // XSD: bankcurrency (valuuta_p)
 }
 
 // receiptsXMLWrapper wraps receipt(s) for XML Direct submission.

@@ -296,19 +296,26 @@ func (p *directoProvider) CreatePayment(ctx context.Context, input CreatePayment
 	if customer == "" {
 		customer = input.CustomerName
 	}
+	// BankID carries the Tasumisviis (payment-method register code, e.g.
+	// "K") — Directo derives the debit account from it, and confirming
+	// fails without it. Customer + invoice + amount go on the ROW per the
+	// XSD. Payment (Tasuti) and Received (Summa S) are both set: for a
+	// base-currency receipt they're the same figure, and the schema only
+	// documents defaulting in the received→payment direction.
 	receipt := directo.ReceiptXML{
-		Number:       input.PaymentNo,
-		CustomerCode: customer,
-		Date:         formatDirectoDate(input.PaymentDate),
-		Currency:     input.Currency,
-		BankAccount:  input.BankID,
-		Confirm:      directoConfirmFlag(input.AutoConfirm),
-		Lines: []directo.ReceiptLineXML{
+		Number:      input.PaymentNo,
+		Date:        formatDirectoDate(input.PaymentDate),
+		PaymentMode: input.BankID,
+		Confirm:     directoConfirmFlag(input.AutoConfirm),
+		Rows: directo.NewReceiptRows([]directo.ReceiptRowXML{
 			{
-				InvoiceNo: input.InvoiceNo,
-				Amount:    input.Amount.String(),
+				InvoiceNo:    input.InvoiceNo,
+				CustomerCode: customer,
+				Payment:      input.Amount.String(),
+				Received:     input.Amount.String(),
+				BankCurrency: input.Currency,
 			},
-		},
+		}),
 	}
 
 	_, err := p.client.CreatePayment(ctx, receipt)

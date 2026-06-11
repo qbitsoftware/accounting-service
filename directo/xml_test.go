@@ -1,6 +1,7 @@
 package directo
 
 import (
+	"encoding/xml"
 	"strings"
 	"testing"
 )
@@ -81,5 +82,34 @@ func TestXMLResultsError(t *testing.T) {
 				t.Errorf("error %q should contain %q", err.Error(), c.wantSubstr)
 			}
 		})
+	}
+}
+
+// TestReceiptXMLShape pins the marshalled receipt against
+// xml_IN_laekumised.xsd. The schema silently ignores unknown attributes
+// and elements — the original <line invoiceno= amount=> shape produced a
+// hollow receipt with no rows and no Tasumisviis, so the only guard is
+// asserting the exact serialised form.
+func TestReceiptXMLShape(t *testing.T) {
+	wrapper := receiptsXMLWrapper{Receipts: []ReceiptXML{{
+		Number:      "7000056",
+		Date:        "11.06.2026",
+		PaymentMode: "K",
+		Confirm:     "1",
+		Rows: NewReceiptRows([]ReceiptRowXML{{
+			InvoiceNo:    "7000056",
+			CustomerCode: "ANNELI_ROOTS",
+			Payment:      "80",
+			Received:     "80",
+			BankCurrency: "EUR",
+		}}),
+	}}}
+	out, err := xml.Marshal(wrapper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `<receipts><receipt number="7000056" date="11.06.2026" paymentmode="K" confirm="1"><rows><row invoice="7000056" customer="ANNELI_ROOTS" payment="80" received="80" bankcurrency="EUR"></row></rows></receipt></receipts>`
+	if string(out) != want {
+		t.Errorf("receipt XML mismatch:\n got: %s\nwant: %s", out, want)
 	}
 }
