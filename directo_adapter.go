@@ -287,8 +287,17 @@ func (p *directoProvider) FindCustomerByEmail(ctx context.Context, email string)
 // --- Payments ---
 
 func (p *directoProvider) CreatePayment(ctx context.Context, input CreatePaymentInput) error {
+	// The receipt's `customer` attribute is the customer CODE in Directo's
+	// register, not a display name — a receipt sent with a name Directo
+	// doesn't know as a code never attaches to the invoice. Prefer the
+	// explicit code; fall back to CustomerName for callers that predate
+	// the CustomerCode field.
+	customer := input.CustomerCode
+	if customer == "" {
+		customer = input.CustomerName
+	}
 	receipt := directo.ReceiptXML{
-		CustomerCode: input.CustomerName,
+		CustomerCode: customer,
 		Date:         formatDirectoDate(input.PaymentDate),
 		Currency:     input.Currency,
 		BankAccount:  input.BankID,
