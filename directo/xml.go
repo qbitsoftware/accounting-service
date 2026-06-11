@@ -117,13 +117,26 @@ func (c *xmlClient) xmlPut(ctx context.Context, what string, xmlData string, ext
 	return &results, nil
 }
 
-// xmlResultsError classifies an XML Direct response. Type "0" is the ONLY
-// success; any other non-empty type is a failure (1 = validation/duplicate,
-// 5 = unauthorized, 12 = missing document identificator, ...). The original
-// implementation special-cased 1 and 5 only, which let Directo errors like
-// type 12 pass as silent successes — the caller marked a receipt "synced"
-// that Directo never created. Empty type with no error attr is tolerated
+// directoSuccessResultTypes are the result types observed to mean "the
+// document is in Directo": 0 (OK) and 30 (desc "Created" — returned on a
+// fresh document create; live-confirmed: the invoice exists in Directo's
+// ledger when this comes back). Empty type with no error attr is tolerated
 // for forward-compat with responses that omit the attribute on success.
+// Everything else is a failure: 1 = validation, 5 = unauthorized,
+// 11 = duplicate, 12 = missing document identificator, 13 = missing
+// customer email/regno, 29 = created but confirm failed, ...
+var directoSuccessResultTypes = map[string]bool{
+	"":   true,
+	"0":  true,
+	"30": true,
+}
+
+// xmlResultsError classifies an XML Direct response. The original
+// implementation special-cased types 1 and 5 as the only errors, which let
+// Directo errors like type 12 pass as silent successes — the caller marked
+// a receipt "synced" that Directo never created. Now success is the
+// allowlist above and any other type fails loudly (better a false failure
+// an admin can retry than a phantom ledger entry).
 func xmlResultsError(results XMLResults) error {
 	for _, r := range results.Results {
 		if r.Type == "5" {
@@ -133,7 +146,7 @@ func xmlResultsError(results XMLResults) error {
 				Source:     "xml",
 			}
 		}
-		if r.Type != "" && r.Type != "0" {
+		if !directoSuccessResultTypes[r.Type] {
 			msg := r.Desc
 			if msg == "" {
 				msg = r.Msg

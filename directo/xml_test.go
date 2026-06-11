@@ -27,6 +27,18 @@ func TestXMLResultsError(t *testing.T) {
 			results: XMLResults{Results: []XMLResult{{}}},
 		},
 		{
+			// Live-confirmed on a fresh invoice create: Directo answers
+			// type 30 desc "Created" and the document IS in the ledger.
+			name:    "type 30 Created is success",
+			results: XMLResults{Results: []XMLResult{{Type: "30", Desc: "Created"}}},
+		},
+		{
+			name:       "type 11 duplicate is an error",
+			results:    XMLResults{Results: []XMLResult{{Type: "11", Desc: "Duplicate"}}},
+			wantErr:    true,
+			wantSubstr: "Duplicate",
+		},
+		{
 			name:       "type 1 validation failure",
 			results:    XMLResults{Results: []XMLResult{{Type: "1", Desc: "korduv arve"}}},
 			wantErr:    true,
