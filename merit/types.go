@@ -665,12 +665,14 @@ type ItemListItem struct {
 	NameFI               string          `json:"NameFI"`
 	NameRU               string          `json:"NameRU"`
 	UnitOfMeasureName    string          `json:"UnitofMeasureName"`
-	Type                 int             `json:"Type"`
+	Type                 int             `json:"Type0"` // numeric type code (1=stock, 2=service, 3=item); Merit's "Type" key is the localized name
+	TypeName             string          `json:"Type"`  // localized type name (e.g. "Teenus", "Kaup")
 	SalesPrice           decimal.Decimal `json:"SalesPrice"`
 	InventoryQty         decimal.Decimal `json:"InventoryQty"`
 	ReservedQty          decimal.Decimal `json:"ReservedQty"`
 	VatTaxName           string          `json:"VatTaxName"`
-	Usage                int             `json:"Usage"`
+	Usage                int             `json:"Usage0"`     // numeric usage code; Merit's "Usage" key is the localized name
+	UsageName            string          `json:"Usage"`      // localized usage name (e.g. "ostuartiklites")
 	SalesAccountCode     string          `json:"SalesAccountCode"`
 	PurchaseAccountCode  string          `json:"PurchaseAccountCode"`
 	InventoryAccountCode string          `json:"InventoryAccountCode"`
