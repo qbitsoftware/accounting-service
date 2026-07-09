@@ -53,6 +53,10 @@ type Prepayment struct {
 	// Merit DocNo is caller-assigned and need not be unique.
 	DocID        string
 	CustomerCode string
+	// CustomerName is the provider's display name for the customer (Merit
+	// PartnerName). Empty when the provider's prepayment source carries no name
+	// (e.g. EB receipt rows expose only the customer code).
+	CustomerName string
 	// Amount is the original advance; Remaining is the still-unapplied part.
 	Amount    decimal.Decimal
 	Remaining decimal.Decimal

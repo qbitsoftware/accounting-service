@@ -85,6 +85,7 @@ func meritAdvancesFromDebts(items []merit.CustomerDebtItem) []Prepayment {
 			Number:       it.DocNo,
 			DocID:        it.DocID,
 			CustomerCode: it.PartnerID,
+			CustomerName: it.PartnerName,
 			Amount:       it.TotalAmount.Neg(),
 			Remaining:    it.UnPaidAmount.Neg(),
 			Currency:     it.CurrencyCode,
