@@ -71,6 +71,21 @@ func ProviderCapabilities(provider string) Capabilities {
 			SupportsFindInvoiceByRef: true,
 			SupportsIncrementalSync:  true,
 		}
+	case "simplbooks":
+		return Capabilities{
+			SupportsInvoicePDF:       true,
+			SupportsInvoiceDelete:    true,
+			SupportsPaymentDelete:    true,
+			SupportsPurchaseCreate:   false,
+			SupportsPurchaseDelete:   false,
+			SupportsTaxList:          true,
+			SupportsAccountList:      true,
+			SupportsDimensions:       false,
+			SupportsCustomerDebts:    false,
+			SupportsVendorPayments:   false,
+			SupportsFindInvoiceByRef: true,
+			SupportsIncrementalSync:  false,
+		}
 	case "directo":
 		return Capabilities{
 			SupportsInvoicePDF:       false,

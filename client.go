@@ -48,6 +48,8 @@ func NewClient(cfg Config) (*Client, error) {
 		p = newExcellentProvider(cfg)
 	case "smartaccounts":
 		p = newSmartAccountsProvider(cfg)
+	case "simplbooks":
+		p = newSimplBooksProvider(cfg)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedProvider, cfg.Provider)
 	}

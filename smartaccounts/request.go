@@ -169,6 +169,19 @@ func (c *Client) post(ctx context.Context, endpoint string, params url.Values, p
 	return c.do(ctx, http.MethodPost, endpoint, params, payload, result)
 }
 
+// Raw performs a signed request to an arbitrary endpoint and returns the raw
+// JSON response envelope. It is an escape hatch for exploratory probes and for
+// endpoints not yet wrapped by a typed method; production code should prefer the
+// typed methods. method is http.MethodGet or http.MethodPost; payload is
+// marshalled to JSON (pass nil for GET).
+func (c *Client) Raw(ctx context.Context, method, endpoint string, params url.Values, payload any) (json.RawMessage, error) {
+	var raw json.RawMessage
+	if err := c.do(ctx, method, endpoint, params, payload, &raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
 // getPaginated drives a change-tracked GET service across all its pages,
 // invoking collect with each page's raw JSON. It increments pageNumber until
 // the response reports hasMoreEntries=false. The deleted IDs reported on the

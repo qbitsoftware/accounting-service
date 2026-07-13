@@ -199,7 +199,23 @@ const (
 const (
 	RowClientInvoice = "CLIENT_INVOICE"
 	RowVendorInvoice = "VENDOR_INVOICE"
+	// RowPrepayment draws from (or, with no id on the payment, is not how you
+	// create — see PaymentPrepayment) an existing customer advance. On a payment
+	// row it MUST carry the id of the parked prepayment payment being applied.
+	RowPrepayment = "PREPAYMENT_PAYMENT"
 )
+
+// PaymentPrepayment is the top-level `prepayment` object on payments:add that
+// PARKS a new unallocated customer advance (ettemaks). A payment carrying this
+// object and NO rows books the advance; SmartAccounts assigns it a paymentId
+// which is later referenced as a PREPAYMENT_PAYMENT row's id to apply it.
+type PaymentPrepayment struct {
+	Amount      decimal.Decimal `json:"amount"`
+	Description string          `json:"description,omitempty"`
+	// Account is the GL prepayment (customer-advance liability) account code,
+	// e.g. "21211" (Ostjate ettemaksed / Prepayments Received).
+	Account string `json:"account,omitempty"`
+}
 
 // PaymentRow links a payment to a document (e.g. a client invoice).
 type PaymentRow struct {
@@ -239,7 +255,11 @@ type CreatePaymentRequest struct {
 	Currency    string          `json:"currency,omitempty"`
 	Amount      decimal.Decimal `json:"amount"`
 	Comment     string          `json:"comment,omitempty"`
-	Rows        []PaymentRow    `json:"rows"`
+	Rows        []PaymentRow    `json:"rows,omitempty"`
+	// Prepayment, when set, PARKS a new customer advance. Send it with an empty
+	// Rows to book the advance (payments:add rejects a PREPAYMENT_PAYMENT row
+	// without an id — rows draw from an advance, this object creates one).
+	Prepayment *PaymentPrepayment `json:"prepayment,omitempty"`
 }
 
 // PaymentResponse is the return value of payments:add / :edit.

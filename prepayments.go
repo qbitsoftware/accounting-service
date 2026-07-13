@@ -13,13 +13,21 @@ import (
 // callers type-assert for it (`pp, ok := provider.(PrepaymentProvider)`), so
 // providers that lack a prepayment register need not implement it.
 //
-// Only Excellent Books implements this today. EB represents a prepayment as an
-// unallocated receipt row carrying a CUPNr (prepayment number); see the
-// excellentbooks adapter for the exact wire format.
+// Excellent Books, Merit and SmartAccounts implement this. Each models a
+// prepayment differently:
+//   - EB: an unallocated receipt row carrying a caller-assigned CUPNr; apply and
+//     unallocate are two-row net-zero receipts.
+//   - Merit: a customer advance via PrePayments/ForCustomer; Apply/Unallocate are
+//     unsupported (Merit's API cannot allocate — callers net via a credit bank).
+//   - SmartAccounts: a payment carrying a `prepayment` object; Apply is a
+//     net-zero payment pairing a CLIENT_INVOICE row with a PREPAYMENT_PAYMENT row
+//     referencing the parked payment's id. Unallocate is unsupported (SA accepts
+//     credit notes on paid invoices directly, so it is unnecessary).
 //
-// The PrepaymentNo (CUPNr) is caller-assigned and must be unique in the
-// provider. klubio derives it from its own already-unique document numbers
-// (e.g. the credit-note number) — EB accepts alphanumeric values.
+// The PrepaymentNo (EB CUPNr) is caller-assigned and must be unique in the
+// provider. klubio derives it from its own already-unique document numbers.
+// SmartAccounts instead assigns its own id (returned as Prepayment.Number/DocID),
+// which the caller stores and passes back as PrepaymentNo when applying.
 type PrepaymentProvider interface {
 	// CreatePrepayment records an unallocated customer advance — money the
 	// customer has with us that is not yet tied to an invoice.
@@ -68,12 +76,19 @@ type Prepayment struct {
 type CreatePrepaymentInput struct {
 	CustomerCode string
 	// PrepaymentNo is the CUPNr the caller assigns; must be unique in the provider.
+	// SmartAccounts ignores this on input (it assigns its own paymentId, returned
+	// as Prepayment.Number/DocID); pass it in the document field for traceability.
 	PrepaymentNo string
 	Amount       decimal.Decimal
 	Currency     string
 	PaymentDate  time.Time
-	// BankID is the provider payment-method code (EB PayMode); required by EB.
-	BankID  string
+	// BankID is the provider payment-method code (EB PayMode); required by EB. For
+	// SmartAccounts it is the bank-account NAME the advance receipt books into.
+	BankID string
+	// Account is the GL prepayment (customer-advance liability) account code, for
+	// providers that post the advance to a ledger account directly (SmartAccounts
+	// prepayment.account, e.g. "21211"). EB/Merit ignore it (they use PayMode/bank).
+	Account string
 	Comment string
 }
 

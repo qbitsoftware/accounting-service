@@ -3,6 +3,8 @@ package smartaccounts
 import (
 	"context"
 	"net/url"
+
+	"github.com/shopspring/decimal"
 )
 
 // ListClientsParams filters a clients:get query.
@@ -66,4 +68,52 @@ func (c *Client) CreateClient(ctx context.Context, req CreateClientRequest) (*Cl
 // EditClient updates a client (req.ID must be set).
 func (c *Client) EditClient(ctx context.Context, req CreateClientRequest) error {
 	return c.post(ctx, "purchasesales/clients:edit", nil, req, nil)
+}
+
+// ClientBalance is the response of clients:getbalance (with fetchDetails=true).
+type ClientBalance struct {
+	ID                string             `json:"id"`
+	BalanceDate       string             `json:"balanceDate"`
+	PrepaymentsUnused []PrepaymentUnused `json:"prepaymentsUnusedList"`
+	InvoicesUnpaid    []InvoiceUnpaid    `json:"invoicesUnpaidList"`
+}
+
+// PrepaymentUnused is an unallocated customer advance from the balance report.
+// UnusedAmount is the still-unapplied remainder and is NEGATIVE (a liability),
+// so callers take its magnitude. PaymentID is the parked payment's id — the
+// stable handle referenced as a PREPAYMENT_PAYMENT row id when applying it.
+type PrepaymentUnused struct {
+	PaymentID    string          `json:"paymentId"`
+	UnusedAmount decimal.Decimal `json:"unusedAmount"`
+	Currency     string          `json:"currency"`
+	Description  string          `json:"description"`
+	PaymentDate  string          `json:"paymentDate"`
+}
+
+// InvoiceUnpaid is an open client invoice from the balance report.
+type InvoiceUnpaid struct {
+	ID                string          `json:"id"`
+	InvoiceNumber     flexString      `json:"invoiceNumber"`
+	Date              string          `json:"date"`
+	DueDate           string          `json:"dueDate"`
+	Currency          string          `json:"currency"`
+	TotalAmount       decimal.Decimal `json:"totalAmount"`
+	OutstandingAmount decimal.Decimal `json:"outstandingAmount"`
+}
+
+// GetClientBalance fetches a client's balance as of balanceDate. With
+// details=true it includes the client's unallocated prepayments (advances) and
+// unpaid invoices — the source for ListPrepayments on SmartAccounts, which has
+// no standalone prepayment register.
+func (c *Client) GetClientBalance(ctx context.Context, clientID, balanceDate string, details bool) (*ClientBalance, error) {
+	v := url.Values{"id": {clientID}}
+	setNonEmpty(v, "balanceDate", balanceDate)
+	if details {
+		v.Set("fetchDetails", "true")
+	}
+	var bal ClientBalance
+	if err := c.get(ctx, "purchasesales/clients:getbalance", v, &bal); err != nil {
+		return nil, err
+	}
+	return &bal, nil
 }
