@@ -30,6 +30,11 @@ type InvoiceXML struct {
 	Deadline     string             `xml:"duedate,attr,omitempty"`      // XSD: duedate (was deadline)
 	Currency     string             `xml:"currency,attr,omitempty"`
 	Comment      string             `xml:"comment,attr,omitempty"`
+	// CreditedInvoice references the original invoice a credit note reduces
+	// (UI: "Kred. arve", SQL: kredarve). Set on credit notes so Directo links
+	// the negative invoice to the document it offsets instead of leaving a
+	// free-floating credit; empty on ordinary invoices.
+	CreditedInvoice string          `xml:"creditedinvoice,attr,omitempty"`
 	VATZone      string             `xml:"vatzone,attr,omitempty"`      // 0=local, 1=EU, 2=export
 	Language     string             `xml:"language,attr,omitempty"`
 	PaymentTerm  string             `xml:"paymentterm,attr,omitempty"`  // XSD: paymentterm

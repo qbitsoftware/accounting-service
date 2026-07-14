@@ -448,6 +448,9 @@ func (p *directoProvider) CreateCreditNote(ctx context.Context, input CreateCred
 		Comment:      input.Comment,
 		PaymentTerm:  input.PaymentTermCode,
 		Confirm:      "1",
+		// Link the credit note to the invoice it reduces (UI "Kred. arve") so it
+		// offsets the original instead of floating as a standalone negative.
+		CreditedInvoice: input.OriginalInvoiceNo,
 		CustomerRegNo: input.CustomerRegNo,
 		Email:         input.CustomerEmail,
 		Address1:      input.CustomerAddress,
