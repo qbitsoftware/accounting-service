@@ -6,7 +6,26 @@ import (
 )
 
 type InvoiceService struct {
-	provider Provider
+	provider     Provider
+	providerName string
+}
+
+// SupportsDateEdit reports whether the configured provider can change an
+// already-issued invoice's dates (the optional InvoiceDateEditor capability).
+func (s *InvoiceService) SupportsDateEdit() bool {
+	_, ok := s.provider.(InvoiceDateEditor)
+	return ok
+}
+
+// UpdateDates changes an invoice's document/due date in place. Returns
+// ErrUnsupportedProvider (wrapped with the provider name) when the provider
+// does not implement InvoiceDateEditor.
+func (s *InvoiceService) UpdateDates(ctx context.Context, input UpdateInvoiceDatesInput) error {
+	de, ok := s.provider.(InvoiceDateEditor)
+	if !ok {
+		return &ProviderError{Provider: s.providerName, Op: "UpdateInvoiceDates", Err: ErrUnsupportedProvider}
+	}
+	return de.UpdateInvoiceDates(ctx, input)
 }
 
 func (s *InvoiceService) Create(ctx context.Context, input CreateInvoiceInput) (*Invoice, error) {

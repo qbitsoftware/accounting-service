@@ -57,7 +57,7 @@ func NewClient(cfg Config) (*Client, error) {
 	c := &Client{
 		provider:     p,
 		providerName: cfg.Provider,
-		Invoices:     &InvoiceService{provider: p},
+		Invoices:     &InvoiceService{provider: p, providerName: cfg.Provider},
 		Customers:    &CustomerService{provider: p},
 		Payments:     &PaymentService{provider: p},
 		Items:        &ItemService{provider: p},

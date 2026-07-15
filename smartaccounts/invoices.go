@@ -94,6 +94,68 @@ func (c *Client) CreateInvoice(ctx context.Context, req CreateInvoiceRequest) (*
 	return &resp, nil
 }
 
+// EditInvoice updates an existing client invoice via clientinvoices:edit.
+// req.ID must be set to the invoice's SmartAccounts id; the rest of req is the
+// full replacement representation (SmartAccounts treats :edit as a full
+// overwrite, not a patch), so callers must send every field they want kept —
+// including the complete Rows slice.
+func (c *Client) EditInvoice(ctx context.Context, req CreateInvoiceRequest) (*InvoiceResponse, error) {
+	if req.ID == "" {
+		return nil, &APIError{StatusCode: 400, Message: "EditInvoice: req.ID is required"}
+	}
+	var resp InvoiceResponse
+	if err := c.post(ctx, "purchasesales/clientinvoices:edit", nil, req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// UpdateInvoiceDates changes an invoice's document date and/or due date without
+// touching anything else. Because :edit is a full overwrite, it first fetches
+// the invoice (rows included) and rebuilds the edit request from it, replacing
+// only date/dueDate. Verified against a live tenant to work on both unpaid and
+// fully-paid invoices. An empty date or dueDate leaves that field at its current
+// value. Dates are "dd.MM.yyyy".
+func (c *Client) UpdateInvoiceDates(ctx context.Context, id, date, dueDate string) error {
+	inv, err := c.GetInvoice(ctx, id)
+	if err != nil {
+		return err
+	}
+	rows := make([]InvoiceRowInput, len(inv.Rows))
+	for i, r := range inv.Rows {
+		rows[i] = InvoiceRowInput{
+			Code:         r.Code,
+			Description:  r.Description,
+			Price:        r.Price,
+			Quantity:     r.Quantity,
+			Unit:         r.Unit,
+			VatPc:        r.VatPc,
+			AccountSales: r.AccountSales,
+			ObjectID:     r.ObjectID,
+		}
+	}
+	newDate := date
+	if newDate == "" {
+		newDate = inv.Date
+	}
+	newDueDate := dueDate
+	if newDueDate == "" {
+		newDueDate = inv.DueDate
+	}
+	req := CreateInvoiceRequest{
+		ID:                     inv.ID,
+		ClientID:               inv.ClientID,
+		Type:                   inv.Type,
+		BaseForCreditInvoiceID: inv.BaseForCreditInvoiceID,
+		Date:                   newDate,
+		DueDate:                newDueDate,
+		Currency:               inv.Currency,
+		Rows:                   rows,
+	}
+	_, err = c.EditInvoice(ctx, req)
+	return err
+}
+
 // DeleteInvoice deletes a client invoice by ID. SmartAccounts' :delete methods
 // want the id in the URL query (like :get) AND a non-empty POST body — sending
 // {"id":...} in the body alone yields "Invoice by id not found", sending no

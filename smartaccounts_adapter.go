@@ -18,6 +18,11 @@ type smartProvider struct {
 	client *smartaccounts.Client
 }
 
+// smartProvider additionally implements the optional InvoiceDateEditor
+// capability — SmartAccounts is the only provider that can safely re-date an
+// already-issued (even fully-paid) invoice via clientinvoices:edit.
+var _ InvoiceDateEditor = (*smartProvider)(nil)
+
 func newSmartAccountsProvider(cfg Config) *smartProvider {
 	return &smartProvider{
 		client: smartaccounts.New(smartaccounts.Config{
@@ -163,6 +168,21 @@ func (p *smartProvider) FindInvoiceByRef(ctx context.Context, refStr string) (*I
 
 func (p *smartProvider) DeleteInvoice(ctx context.Context, id string) error {
 	return p.wrapError("DeleteInvoice", p.client.DeleteInvoice(ctx, id))
+}
+
+// UpdateInvoiceDates implements the optional InvoiceDateEditor capability. A
+// zero DocDate/DueDate is passed through as an empty string so the underlying
+// client leaves that field at its current value.
+func (p *smartProvider) UpdateInvoiceDates(ctx context.Context, input UpdateInvoiceDatesInput) error {
+	date := ""
+	if !input.DocDate.IsZero() {
+		date = saFormatDate(input.DocDate)
+	}
+	dueDate := ""
+	if !input.DueDate.IsZero() {
+		dueDate = saFormatDate(input.DueDate)
+	}
+	return p.wrapError("UpdateInvoiceDates", p.client.UpdateInvoiceDates(ctx, input.ID, date, dueDate))
 }
 
 // --- Credit Notes ---
