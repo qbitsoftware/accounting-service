@@ -2,7 +2,6 @@ package simplbooks
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 )
 
@@ -16,7 +15,7 @@ func (c *Client) ListInvoices(ctx context.Context, params ListParams) ([]Invoice
 	var rows []struct {
 		Invoice Invoice `json:"invoices"`
 	}
-	if err := json.Unmarshal(resp.Data, &rows); err != nil {
+	if err := resp.decodeData(&rows); err != nil {
 		return nil, fmt.Errorf("simplbooks: parse invoices: %w", err)
 	}
 	out := make([]Invoice, len(rows))
@@ -56,7 +55,7 @@ func (c *Client) GetInvoice(ctx context.Context, id string) (*Invoice, error) {
 		Invoice Invoice      `json:"Invoice"`
 		Task    []InvoiceRow `json:"Task"`
 	}
-	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+	if err := resp.decodeData(&payload); err != nil {
 		return nil, fmt.Errorf("simplbooks: parse invoice: %w", err)
 	}
 	inv := payload.Invoice
@@ -72,7 +71,7 @@ func (c *Client) GetInvoicePDF(ctx context.Context, id string) ([]byte, error) {
 		return nil, err
 	}
 	var b64 string
-	if err := json.Unmarshal(resp.Data, &b64); err != nil {
+	if err := resp.decodeData(&b64); err != nil {
 		return nil, fmt.Errorf("simplbooks: parse invoice pdf: %w", err)
 	}
 	return decodeBase64(b64)

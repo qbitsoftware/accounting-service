@@ -50,7 +50,10 @@ type Invoice struct {
 	CurrencyRate            Decimal `json:"currency_rate"`
 	Sent                    string  `json:"sent"`
 	Paid                    string  `json:"paid"`
-	Remnant                 Decimal `json:"remnant"`
+	// Remnant is the unpaid balance. It is only returned by invoices/get —
+	// invoices/list omits it entirely — so it is a pointer to tell "absent
+	// from this projection" apart from a genuine zero (fully paid).
+	Remnant *Decimal `json:"remnant"`
 	AdditionalInfo          string  `json:"additional_info"`
 	CreditInvoiceFor        int     `json:"credit_invoice_for"`
 	Proforma                bool    `json:"proforma"`
@@ -121,6 +124,11 @@ type Incoming struct {
 	Description     string  `json:"description"`
 	CurrencyName    string  `json:"currency_name"`
 	ClientID        int     `json:"client_id"`
+	// Bound reports whether the receipt has been fully allocated to invoices.
+	// SimplBooks exposes no per-receipt remaining amount, so this boolean is the
+	// only signal that an advance still has money left on it: false = something
+	// remains, true = fully consumed. Verified live.
+	Bound bool `json:"bound"`
 }
 
 // VatType is a VAT/tax class.

@@ -23,6 +23,8 @@ package simplbooks
 import (
 	"net/http"
 	"strings"
+
+	"golang.org/x/time/rate"
 )
 
 // DefaultBaseURL is the SimplBooks production host.
@@ -50,7 +52,17 @@ type Client struct {
 	companyID  string
 	token      string
 	httpClient *http.Client
+	// limiter paces requests against SimplBooks' documented 60/minute budget.
+	// Without it a paged sweep or a FindInvoiceByRef scan starts 429-ing partway
+	// through and the caller sees partial data, so the throttle is part of
+	// correctness here, not just politeness.
+	limiter *rate.Limiter
 }
+
+// rateLimitPerSecond is deliberately just under the documented 60 requests per
+// minute, with no burst, so a long scan paces itself instead of spending the
+// whole budget up front and stalling.
+const rateLimitPerSecond = 0.9
 
 // New creates a new SimplBooks API client.
 func New(cfg Config) *Client {
@@ -67,5 +79,6 @@ func New(cfg Config) *Client {
 		companyID:  cfg.CompanyID,
 		token:      cfg.Token,
 		httpClient: httpClient,
+		limiter:    rate.NewLimiter(rate.Limit(rateLimitPerSecond), 1),
 	}
 }

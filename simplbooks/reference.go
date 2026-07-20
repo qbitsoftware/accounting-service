@@ -2,7 +2,6 @@ package simplbooks
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 )
 
@@ -15,7 +14,7 @@ func (c *Client) ListVatTypes(ctx context.Context) ([]VatType, error) {
 	var rows []struct {
 		VatType VatType `json:"VatType"`
 	}
-	if err := json.Unmarshal(resp.Data, &rows); err != nil {
+	if err := resp.decodeData(&rows); err != nil {
 		return nil, fmt.Errorf("simplbooks: parse vat types: %w", err)
 	}
 	out := make([]VatType, len(rows))
@@ -34,7 +33,7 @@ func (c *Client) ListFinancialAccounts(ctx context.Context, params ListParams) (
 	var rows []struct {
 		FinancialAccount FinancialAccount `json:"FinancialAccount"`
 	}
-	if err := json.Unmarshal(resp.Data, &rows); err != nil {
+	if err := resp.decodeData(&rows); err != nil {
 		return nil, fmt.Errorf("simplbooks: parse financial accounts: %w", err)
 	}
 	out := make([]FinancialAccount, len(rows))
@@ -72,7 +71,7 @@ func (c *Client) ListIncomeAccounts(ctx context.Context, params ListParams) ([]I
 	var rows []struct {
 		IncomeAccount IncomeAccount `json:"IncomeAccount"`
 	}
-	if err := json.Unmarshal(resp.Data, &rows); err != nil {
+	if err := resp.decodeData(&rows); err != nil {
 		return nil, fmt.Errorf("simplbooks: parse income accounts: %w", err)
 	}
 	out := make([]IncomeAccount, len(rows))

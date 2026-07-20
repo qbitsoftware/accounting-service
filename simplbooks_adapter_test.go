@@ -51,16 +51,23 @@ func TestInDateRange(t *testing.T) {
 }
 
 func TestSimplBooksRow(t *testing.T) {
+	// The article id is resolved by the caller (resolveArticleID) and passed in;
+	// the row builder no longer guesses it from the code.
 	row := simplbooksRow(CreateInvoiceLineInput{
-		Code:        "42", // numeric → article_id
+		Code:        "Liikmemaks",
 		Description: "Monthly fee",
 		Quantity:    d("1"),
 		UnitPrice:   d("25.50"),
 		TaxID:       "5",
 		AccountCode: "3",
-	})
+	}, 42)
 	if row["article_id"] != 42 {
 		t.Errorf("article_id = %v, want 42", row["article_id"])
+	}
+	// Task.code must never be sent: SimplBooks validates it against its own
+	// article register and rejects the whole invoice on a mismatch.
+	if _, ok := row["code"]; ok {
+		t.Error("row must not carry a code field")
 	}
 	if row["vat_type_id"] != 5 {
 		t.Errorf("vat_type_id = %v, want 5", row["vat_type_id"])
@@ -75,10 +82,11 @@ func TestSimplBooksRow(t *testing.T) {
 		t.Errorf("price_per_unit = %v, want 25.5", row["price_per_unit"])
 	}
 
-	// Non-numeric code must NOT become article_id, and name falls back to code.
-	row2 := simplbooksRow(CreateInvoiceLineInput{Code: "MISC", Quantity: d("2"), UnitPrice: d("1")})
+	// An unresolved code (0) must NOT set article_id — the line goes out as free
+	// text, which SimplBooks accepts. name falls back to the code.
+	row2 := simplbooksRow(CreateInvoiceLineInput{Code: "MISC", Quantity: d("2"), UnitPrice: d("1")}, 0)
 	if _, ok := row2["article_id"]; ok {
-		t.Error("non-numeric code should not set article_id")
+		t.Error("unresolved article must not set article_id")
 	}
 	if row2["name"] != "MISC" {
 		t.Errorf("name = %v, want MISC (fallback to code)", row2["name"])
@@ -86,17 +94,28 @@ func TestSimplBooksRow(t *testing.T) {
 }
 
 func TestMapSimplBooksInvoiceStatus(t *testing.T) {
+	ptr := func(s string) *simplbooks.Decimal { v := decSB(s); return &v }
 	cases := []struct {
 		name       string
 		paid       string
 		total      string
-		remnant    string
+		remnant    *simplbooks.Decimal // nil = absent, as in the invoices/list projection
 		wantPaid   bool
 		wantStatus InvoiceStatus
+		wantAmount string
 	}{
-		{"paid", "2024-02-01", "100", "0", true, InvoiceStatusPaid},
-		{"unpaid", "0000-00-00", "100", "100", false, InvoiceStatusUnpaid},
-		{"partial", "0000-00-00", "100", "40", false, InvoiceStatusPartial},
+		// invoices/get — remnant present, so the exact paid amount is known.
+		{"paid", "2024-02-01", "100", ptr("0"), true, InvoiceStatusPaid, "100"},
+		{"unpaid", "0000-00-00", "100", ptr("100"), false, InvoiceStatusUnpaid, "0"},
+		{"partial", "0000-00-00", "100", ptr("40"), false, InvoiceStatusPartial, "60"},
+		// A settlement date with a remnant still open: trust the date for the
+		// status but report the real amount from the remnant.
+		{"paid date with remnant", "2024-02-01", "100", ptr("40"), true, InvoiceStatusPaid, "60"},
+		// Overpayment must not produce a negative paid amount.
+		{"overpaid", "2024-02-01", "100", ptr("-20"), true, InvoiceStatusPaid, "120"},
+		// invoices/list — remnant absent, fall back to the settlement date.
+		{"list projection paid", "2024-02-01", "100", nil, true, InvoiceStatusPaid, "100"},
+		{"list projection unpaid", "0000-00-00", "100", nil, false, InvoiceStatusUnpaid, "0"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -105,7 +124,7 @@ func TestMapSimplBooksInvoiceStatus(t *testing.T) {
 				Number:   "18001",
 				Paid:     c.paid,
 				TotalSum: decSB(c.total),
-				Remnant:  decSB(c.remnant),
+				Remnant:  c.remnant,
 			}
 			got := mapSimplBooksInvoice(inv)
 			if got.Paid != c.wantPaid {
@@ -113,6 +132,12 @@ func TestMapSimplBooksInvoiceStatus(t *testing.T) {
 			}
 			if got.Status != c.wantStatus {
 				t.Errorf("Status = %v, want %v", got.Status, c.wantStatus)
+			}
+			// PaidAmount drives klubio's payment pull, which only writes when
+			// the provider figure exceeds the local one — a wrong zero here
+			// silently disables reconciliation.
+			if got.PaidAmount.String() != c.wantAmount {
+				t.Errorf("PaidAmount = %v, want %v", got.PaidAmount, c.wantAmount)
 			}
 			if got.ID != "7" {
 				t.Errorf("ID = %v, want 7", got.ID)

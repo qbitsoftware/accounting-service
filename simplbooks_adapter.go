@@ -4,11 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/qbitsoftware/accounting-service/simplbooks"
+	"github.com/shopspring/decimal"
 )
 
 const simplbooksDateFormat = "2006-01-02"
@@ -23,6 +28,16 @@ const simplbooksDateFormat = "2006-01-02"
 // must pass that numeric ID as a string; the adapter parses it back to an int.
 type simplbooksProvider struct {
 	client *simplbooks.Client
+
+	// articleCache maps a klubio article code to the SimplBooks article it names,
+	// so an invoice line can carry a readable code ("Liikmemaks") instead of an
+	// opaque numeric id. Loaded lazily on first use and reused for the life of
+	// the provider — klubio builds one client per sync run, so a batch costs a
+	// single articles/list against the 60 req/min budget.
+	articleMu     sync.Mutex
+	articleByCode map[string]int  // lower(code) -> article id
+	articleIDs    map[int]bool    // known ids, to validate a numeric code
+	articleLoaded bool
 }
 
 func newSimplBooksProvider(cfg Config) *simplbooksProvider {
@@ -53,15 +68,22 @@ func (p *simplbooksProvider) TestConnection(ctx context.Context) error {
 // --- Invoices ---
 
 func (p *simplbooksProvider) CreateInvoice(ctx context.Context, input CreateInvoiceInput) (*Invoice, error) {
+	clientID := atoiOrZero(input.CustomerID)
+	if clientID == 0 {
+		return nil, p.wrapError("CreateInvoice", fmt.Errorf(
+			"%w: CustomerID must be a numeric SimplBooks client_id (got %q) — SimplBooks has no inline customer on an invoice",
+			ErrInvalidInput, input.CustomerID))
+	}
 	invoice := map[string]any{
-		"created":          formatSimplBooksDate(input.DocDate),
-		"transaction_date": formatSimplBooksDate(input.DocDate),
-		"due":              formatSimplBooksDate(input.DueDate),
 		"row_sum_with_vat": false, // line prices are net; VAT is added per row
+		"client_id":        clientID,
 	}
-	if id := atoiOrZero(input.CustomerID); id != 0 {
-		invoice["client_id"] = id
-	}
+	// Dates are only sent when set: formatSimplBooksDate returns "" for a zero
+	// time, and an empty string is not "use the account default" — it either
+	// 400s or stores 0000-00-00.
+	putIf(invoice, "created", formatSimplBooksDate(input.DocDate))
+	putIf(invoice, "transaction_date", formatSimplBooksDate(input.DocDate))
+	putIf(invoice, "due", formatSimplBooksDate(input.DueDate))
 	if input.Currency != "" {
 		invoice["currency_name"] = input.Currency
 	}
@@ -77,7 +99,7 @@ func (p *simplbooksProvider) CreateInvoice(ctx context.Context, input CreateInvo
 
 	tasks := make([]map[string]any, 0, len(input.Lines))
 	for _, line := range input.Lines {
-		tasks = append(tasks, map[string]any{"Task": simplbooksRow(line)})
+		tasks = append(tasks, map[string]any{"Task": simplbooksRow(line, p.resolveArticleID(ctx, line.Code))})
 	}
 
 	id, err := p.client.CreateInvoice(ctx, map[string]any{
@@ -125,29 +147,101 @@ func (p *simplbooksProvider) ListInvoices(ctx context.Context, input ListInvoice
 		}
 		invoices = append(invoices, *mapSimplBooksInvoice(&items[i]))
 	}
+	p.fillPartialBalances(ctx, invoices)
 	return invoices, nil
+}
+
+// simplbooksBalanceFetchLimit caps how many invoices fillPartialBalances will
+// fetch individually, so a large back-window can't consume the whole 60 req/min
+// budget. Anything beyond the cap keeps its list-derived figure.
+const simplbooksBalanceFetchLimit = 300
+
+// fillPartialBalances repairs PaidAmount for PARTIALLY paid invoices.
+//
+// invoices/list carries no `remnant` — not even when explicitly requested via
+// `fields`, verified live — and a partial payment leaves `paid` at the
+// "0000-00-00" sentinel. So a half-paid invoice comes out of the list looking
+// completely unpaid, and klubio's payment pull (which acts on provider paid >
+// local paid) silently never sees the money.
+//
+// Only invoices the list reports as UNSETTLED need this: a settled one already
+// maps to PaidAmount == total, which is what invoices/get would say too. In a
+// healthy club most invoices in the window are settled, so this stays a
+// minority of rows.
+func (p *simplbooksProvider) fillPartialBalances(ctx context.Context, invoices []Invoice) {
+	fetched := 0
+	for i := range invoices {
+		if invoices[i].Paid || invoices[i].PaidAmount.IsPositive() {
+			continue // already settled — the list figure is accurate
+		}
+		if fetched >= simplbooksBalanceFetchLimit {
+			slog.Warn("simplbooks: partial-balance lookup capped; remaining invoices keep their list-derived paid amount",
+				"limit", simplbooksBalanceFetchLimit, "unresolved", len(invoices)-i)
+			return
+		}
+		full, err := p.client.GetInvoice(ctx, invoices[i].ID)
+		if err != nil {
+			continue // leave the list-derived figure rather than failing the whole list
+		}
+		fetched++
+		invoices[i] = *mapSimplBooksInvoice(full)
+	}
 }
 
 func (p *simplbooksProvider) DeleteInvoice(ctx context.Context, id string) error {
 	return p.wrapError("DeleteInvoice", p.client.DeleteInvoice(ctx, id))
 }
 
-// FindInvoiceByRef scans invoices for a matching reference. SimplBooks' list
-// endpoint has no reference filter, so we request the reference column via the
-// `fields` param and match client-side across pages.
+// simplbooksRefScanLimit bounds how many invoices FindInvoiceByRef will fetch
+// individually. SimplBooks allows 60 requests/minute, so an unbounded scan of a
+// club with thousands of invoices would stall for many minutes and starve every
+// other call. Newest invoices are checked first, which is where a reference
+// being looked up (a recent bank payment) almost always lives.
+const simplbooksRefScanLimit = 250
+
+// FindInvoiceByRef locates an invoice by its payment reference number.
+//
+// This is unavoidably expensive on SimplBooks: invoices/list neither returns
+// `reference` (it is dropped even when requested via `fields`) nor filters on
+// it (a `reference` filter is silently ignored and returns everything), so the
+// reference is only visible via invoices/get on one invoice at a time. We list
+// the IDs, then fetch newest-first until a reference matches, capped at
+// simplbooksRefScanLimit fetches.
+//
+// Both API behaviours were verified against a live account. If SimplBooks ever
+// exposes a reference filter, replace this whole scan with it.
 func (p *simplbooksProvider) FindInvoiceByRef(ctx context.Context, refStr string) (*Invoice, error) {
 	refStr = strings.TrimSpace(refStr)
 	if refStr == "" {
 		return nil, &ProviderError{Provider: "simplbooks", Op: "FindInvoiceByRef", Err: ErrNotFound}
 	}
-	items, err := p.client.ListAllInvoices(ctx, nil, []string{"id", "number", "reference"}, 200)
+	items, err := p.client.ListAllInvoices(ctx, nil, []string{"id", "number"}, 200)
 	if err != nil {
 		return nil, p.wrapError("FindInvoiceByRef", err)
 	}
+	// Newest first — list order is not guaranteed, so sort by ID descending.
+	sort.Slice(items, func(a, b int) bool { return items[a].ID > items[b].ID })
+	if len(items) > simplbooksRefScanLimit {
+		items = items[:simplbooksRefScanLimit]
+	}
 	for i := range items {
-		if strings.TrimSpace(items[i].Reference) == refStr {
-			// The list projection is partial; fetch the full document.
-			return p.GetInvoice(ctx, strconv.Itoa(items[i].ID))
+		full, err := p.client.GetInvoice(ctx, strconv.Itoa(items[i].ID))
+		if err != nil {
+			// A rate-limit stop must NOT be swallowed. This scan issues up to
+			// simplbooksRefScanLimit sequential gets against a 60 req/min budget,
+			// so 429s are expected on a busy account — and continuing past them
+			// would return "not found" for an invoice that exists, silently
+			// leaving a real bank payment unmatched. Abort and let the caller
+			// retry instead.
+			var apiErr *simplbooks.APIError
+			if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusTooManyRequests {
+				return nil, p.wrapError("FindInvoiceByRef", err)
+			}
+			// Any other single unreadable invoice must not abort the scan.
+			continue
+		}
+		if strings.TrimSpace(full.Reference) == refStr {
+			return mapSimplBooksInvoice(full), nil
 		}
 	}
 	return nil, &ProviderError{Provider: "simplbooks", Op: "FindInvoiceByRef", Err: ErrNotFound}
@@ -155,13 +249,32 @@ func (p *simplbooksProvider) FindInvoiceByRef(ctx context.Context, refStr string
 
 // --- Customers ---
 
+// simplbooksAddressPlaceholder stands in for a missing street address.
+//
+// SimplBooks REJECTS clients/create without address_street ("Kliendi või
+// tarnija tänava aadress on kohustuslik", 400) — verified live; the OpenAPI
+// spec declares no required fields, so this is only discoverable by trying.
+// Merit and Excellent Books have no such rule, so klubio rosters routinely
+// carry members with no address at all, and hard-failing every one of them
+// would block the whole sync. A neutral placeholder keeps the sync moving and
+// is obvious in the client card, so an accountant can see what needs filling.
+const simplbooksAddressPlaceholder = "-"
+
+// simplbooksDefaultUnit is the unit used when the caller supplies none; see
+// CreateItem for why one is always required.
+const simplbooksDefaultUnit = "tk"
+
 func (p *simplbooksProvider) CreateCustomer(ctx context.Context, input CreateCustomerInput) (*Customer, error) {
 	fields := map[string]any{"name": input.Name}
+	address := strings.TrimSpace(input.Address)
+	if address == "" {
+		address = simplbooksAddressPlaceholder
+	}
+	fields["address_street"] = address
 	putIf(fields, "reg_no", input.RegNo)
 	putIf(fields, "vat_no", input.VATRegNo)
 	putIf(fields, "e_mail", input.Email)
 	putIf(fields, "phone", input.Phone)
-	putIf(fields, "address_street", input.Address)
 	putIf(fields, "address_city", input.City)
 	putIf(fields, "address_postal_code", input.PostalCode)
 	putIf(fields, "address_county", input.County)
@@ -310,9 +423,16 @@ func (p *simplbooksProvider) CreateItem(ctx context.Context, input CreateItemInp
 		"name":   input.Description,
 		"active": true,
 	}
-	if input.UnitOfMeasure != "" {
-		fields["unit"] = input.UnitOfMeasure
+	// SimplBooks REJECTS articles/create without a unit ("Artikli ühik peab olema
+	// määratud vähemalt ühes keeles", 400) — verified live; the OpenAPI spec
+	// declares no required fields. klubio's article registry has no unit field
+	// at all, so default to the Estonian "tk" (pcs) rather than failing every
+	// article push.
+	unit := strings.TrimSpace(input.UnitOfMeasure)
+	if unit == "" {
+		unit = simplbooksDefaultUnit
 	}
+	fields["unit"] = unit
 	if !input.SalesPrice.IsZero() {
 		fields["price_per_unit"] = input.SalesPrice.String()
 	}
@@ -325,6 +445,7 @@ func (p *simplbooksProvider) CreateItem(ctx context.Context, input CreateItemInp
 	if err != nil {
 		return nil, p.wrapError("CreateItem", err)
 	}
+	p.invalidateArticleCache()
 	item, err := p.client.GetArticle(ctx, strconv.Itoa(id))
 	if err != nil {
 		return &Item{ID: strconv.Itoa(id), Code: input.Code, Name: input.Description}, nil
@@ -350,11 +471,30 @@ func (p *simplbooksProvider) UpdateItem(ctx context.Context, input UpdateItemInp
 		return &ProviderError{Provider: "simplbooks", Op: "UpdateItem", Err: ErrInvalidInput}
 	}
 	fields := map[string]any{}
+	putIfPtr(fields, "code", input.Code)
 	putIfPtr(fields, "name", input.Description)
 	if input.SalesPrice != nil {
 		fields["price_per_unit"] = input.SalesPrice.String()
 	}
-	return p.wrapError("UpdateItem", p.client.UpdateArticle(ctx, id, fields))
+	// articles/update REPLACES the record, so it enforces the same mandatory
+	// unit as create — omitting it fails with "Artikli ühik peab olema määratud
+	// vähemalt ühes keeles". UpdateItemInput carries no unit, so preserve
+	// whatever the article already has (an accountant may have set something
+	// other than the default) and only fall back when it has none.
+	unit := simplbooksDefaultUnit
+	if current, err := p.client.GetArticle(ctx, strconv.Itoa(id)); err == nil {
+		if u := strings.TrimSpace(current.Unit); u != "" {
+			unit = u
+		}
+	}
+	fields["unit"] = unit
+	// NOTE: TaxID and SalesAccountCode are not forwarded — both are read-only on
+	// the Article schema, same as on create.
+	err := p.client.UpdateArticle(ctx, id, fields)
+	if err == nil {
+		p.invalidateArticleCache() // a code change moves the code->id mapping
+	}
+	return p.wrapError("UpdateItem", err)
 }
 
 // --- Credit Notes ---
@@ -377,13 +517,23 @@ func (p *simplbooksProvider) CreateCreditNote(ctx context.Context, input CreateC
 	if input.RefNo != "" {
 		invoice["reference"] = input.RefNo
 	}
+	// Carry klubio's own credit-note number and comment across, exactly as
+	// CreateInvoice does. Without these SimplBooks auto-numbers the document
+	// (e.g. "26001") and an accountant has no way to tie it back to the
+	// KRINV… number the member was sent.
+	if input.InvoiceNo != "" {
+		invoice["number"] = input.InvoiceNo
+	}
+	if input.Comment != "" {
+		invoice["additional_info"] = input.Comment
+	}
 	if orig := atoiOrZero(input.OriginalInvoiceNo); orig != 0 {
 		invoice["credit_invoice_for"] = orig
 	}
 
 	tasks := make([]map[string]any, 0, len(input.Lines))
 	for _, line := range input.Lines {
-		tasks = append(tasks, map[string]any{"Task": simplbooksRow(line)})
+		tasks = append(tasks, map[string]any{"Task": simplbooksRow(line, p.resolveArticleID(ctx, line.Code))})
 	}
 
 	id, err := p.client.CreateInvoice(ctx, map[string]any{
@@ -454,8 +604,14 @@ func (p *simplbooksProvider) ListAccounts(ctx context.Context) ([]Account, error
 		if a.Code == "" {
 			continue
 		}
+		// ID must be the numeric financial-account ID, not the human-readable
+		// code: an invoice row references the account via income_account_id,
+		// which simplbooksRow parses out of line.AccountCode. Returning the code
+		// here (e.g. "4400") would be parsed as account ID 4400 and silently
+		// post revenue to the wrong account — or none at all. Code stays the
+		// display code so pickers can still show "4400 — Käibemaksuvaba käive".
 		accounts = append(accounts, Account{
-			ID:     a.Code,
+			ID:     strconv.Itoa(a.ID),
 			Code:   a.Code,
 			Name:   a.Name,
 			Active: a.Active,
@@ -514,7 +670,88 @@ func (p *simplbooksProvider) ListPaymentsSince(ctx context.Context, since, until
 
 // --- Mapping helpers ---
 
-func simplbooksRow(line CreateInvoiceLineInput) map[string]any {
+// loadArticles fills the code->id cache. Caller must hold articleMu.
+func (p *simplbooksProvider) loadArticlesLocked(ctx context.Context) error {
+	arts, err := p.client.ListAllArticles(ctx, nil, 1000)
+	if err != nil {
+		return err
+	}
+	byCode := make(map[string]int, len(arts))
+	ids := make(map[int]bool, len(arts))
+	for _, a := range arts {
+		ids[a.ID] = true
+		if c := strings.ToLower(strings.TrimSpace(a.Code)); c != "" {
+			byCode[c] = a.ID
+		}
+	}
+	p.articleByCode = byCode
+	p.articleIDs = ids
+	p.articleLoaded = true
+	return nil
+}
+
+// resolveArticleID maps an invoice line's Code to a SimplBooks article id.
+//
+// Resolution order:
+//  1. an article whose CODE matches (case-insensitive) — the normal path, so
+//     klubio can keep human-readable codes like "Liikmemaks";
+//  2. failing that, a numeric code is treated as an article id, but only if an
+//     article with that id actually exists. Without that existence check a
+//     klubio code like "1001" would silently link to whatever unrelated article
+//     happened to hold id 1001, dragging its data onto the line.
+//
+// Returns 0 when nothing matches: the line then goes out as free text, which
+// SimplBooks accepts. It must NOT fall back to sending the code as-is —
+// SimplBooks validates Task.code against its register and rejects the whole
+// invoice ("Artikli ID ja artikli kood ei ole vastavuses...").
+//
+// A miss on a warm cache triggers one refresh, so an article created after the
+// cache loaded (e.g. by CreateItem earlier in the same run) is picked up.
+func (p *simplbooksProvider) resolveArticleID(ctx context.Context, code string) int {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return 0
+	}
+	p.articleMu.Lock()
+	defer p.articleMu.Unlock()
+
+	lookup := func() int {
+		if id, ok := p.articleByCode[strings.ToLower(code)]; ok {
+			return id
+		}
+		if n := atoiOrZero(code); n != 0 && p.articleIDs[n] {
+			return n
+		}
+		return 0
+	}
+
+	if !p.articleLoaded {
+		if err := p.loadArticlesLocked(ctx); err != nil {
+			// Can't reach the register — fall back to a free-text line rather
+			// than failing the invoice over a cosmetic link.
+			return 0
+		}
+		return lookup()
+	}
+	if id := lookup(); id != 0 {
+		return id
+	}
+	// Warm cache, no match: the article may have been created since. Refresh once.
+	if err := p.loadArticlesLocked(ctx); err != nil {
+		return 0
+	}
+	return lookup()
+}
+
+// invalidateArticleCache drops the cached register after a write, so a
+// subsequent line referencing the new/renamed article resolves.
+func (p *simplbooksProvider) invalidateArticleCache() {
+	p.articleMu.Lock()
+	p.articleByCode, p.articleIDs, p.articleLoaded = nil, nil, false
+	p.articleMu.Unlock()
+}
+
+func simplbooksRow(line CreateInvoiceLineInput, articleID int) map[string]any {
 	row := map[string]any{
 		"amount":         line.Quantity.String(),
 		"price_per_unit": line.UnitPrice.String(),
@@ -524,8 +761,11 @@ func simplbooksRow(line CreateInvoiceLineInput) map[string]any {
 		name = line.Code
 	}
 	row["name"] = name
-	if id := atoiOrZero(line.Code); id != 0 {
-		row["article_id"] = id
+	// article_id only — never Task.code, which SimplBooks validates against its
+	// own register and rejects when it doesn't match (see resolveArticleID).
+	// SimplBooks fills the code itself from the linked article.
+	if articleID != 0 {
+		row["article_id"] = articleID
 	}
 	if line.Description != "" {
 		row["contents"] = line.Description
@@ -556,12 +796,37 @@ func mapSimplBooksInvoice(inv *simplbooks.Invoice) *Invoice {
 		})
 	}
 
+	// SimplBooks exposes no paid *amount* — only a `paid` settlement date and,
+	// on invoices/get, a `remnant` (open balance). Derive the amount:
+	//
+	//   remnant present (invoices/get) -> paid = total - remnant, which is the
+	//     only way to see a partial payment.
+	//   remnant absent (invoices/list) -> fall back to the settlement date:
+	//     a set date means fully paid, otherwise nothing is paid. Partial
+	//     payments are invisible in the list projection; callers needing exact
+	//     figures must GetInvoice.
+	//
+	// Klubio's payment pull compares this against the local paid amount and
+	// only writes when it is greater, so leaving it at zero silently disables
+	// payment reconciliation entirely.
 	paid := parseSimplBooksDate(inv.Paid)
-	status := InvoiceStatusUnpaid
 	isPaid := !paid.IsZero()
-	if isPaid {
+	status := InvoiceStatusUnpaid
+	var paidAmount decimal.Decimal
+	switch {
+	case inv.Remnant != nil:
+		paidAmount = inv.TotalSum.Decimal.Sub(inv.Remnant.Decimal)
+		if paidAmount.IsNegative() {
+			paidAmount = decimal.Zero
+		}
+	case isPaid:
+		paidAmount = inv.TotalSum.Decimal
+	}
+	switch {
+	case isPaid || (paidAmount.GreaterThanOrEqual(inv.TotalSum.Decimal) && paidAmount.IsPositive()):
+		isPaid = true
 		status = InvoiceStatusPaid
-	} else if !inv.Remnant.Decimal.IsZero() && inv.Remnant.Decimal.LessThan(inv.TotalSum.Decimal) {
+	case paidAmount.IsPositive():
 		status = InvoiceStatusPartial
 	}
 
@@ -573,6 +838,7 @@ func mapSimplBooksInvoice(inv *simplbooks.Invoice) *Invoice {
 		DocDate:      parseSimplBooksDate(inv.Created),
 		DueDate:      parseSimplBooksDate(inv.Due),
 		TotalAmount:  inv.TotalSum.Decimal,
+		PaidAmount:   paidAmount,
 		TaxAmount:    inv.Vat.Decimal,
 		Currency:     inv.CurrencyName,
 		Paid:         isPaid,

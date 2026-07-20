@@ -40,6 +40,21 @@ type apiResponse struct {
 	Errors     json.RawMessage `json:"errors"` // usually []string
 }
 
+// decodeData unmarshals the envelope's `data` into v.
+//
+// SimplBooks OMITS `data` entirely when a list matches nothing — an empty
+// result is {"status":200,"duration":0.0022} with no `data` key at all, not
+// `"data":[]`. Feeding that nil RawMessage to json.Unmarshal fails with
+// "unexpected end of JSON input", which surfaced as a hard sync error the first
+// time a customer lookup found no match. Treat absent/null data as "no rows".
+func (r *apiResponse) decodeData(v any) error {
+	trimmed := strings.TrimSpace(string(r.Data))
+	if trimmed == "" || trimmed == "null" {
+		return nil // leave v at its zero value: empty slice / empty struct
+	}
+	return json.Unmarshal(r.Data, v)
+}
+
 // insertedID extracts the new object's ID from a create response. SimplBooks
 // returns it either as a JSON number or a quoted string.
 func (r *apiResponse) insertedID() (int, error) {
@@ -79,6 +94,14 @@ func parseErrors(raw json.RawMessage) []string {
 // e.g. "clients/get/1" or "invoices/create". When body is non-nil it is JSON
 // encoded and sent with the X-Input-Format: json header.
 func (c *Client) do(ctx context.Context, method, path string, body any) (*apiResponse, error) {
+	// Pace against the documented 60 req/min budget before doing anything else.
+	// Honours ctx cancellation, so a caller's deadline still wins.
+	if c.limiter != nil {
+		if err := c.limiter.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("simplbooks: rate limiter: %w", err)
+		}
+	}
+
 	reqURL := fmt.Sprintf("%s/%s/api/%s", c.baseURL, c.companyID, path)
 
 	var bodyReader io.Reader

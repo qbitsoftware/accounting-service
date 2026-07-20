@@ -2,7 +2,6 @@ package simplbooks
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 )
@@ -16,7 +15,7 @@ func (c *Client) ListArticles(ctx context.Context, params ListParams) ([]Article
 	var rows []struct {
 		Article Article `json:"Article"`
 	}
-	if err := json.Unmarshal(resp.Data, &rows); err != nil {
+	if err := resp.decodeData(&rows); err != nil {
 		return nil, fmt.Errorf("simplbooks: parse articles: %w", err)
 	}
 	out := make([]Article, len(rows))
@@ -54,7 +53,7 @@ func (c *Client) GetArticle(ctx context.Context, id string) (*Article, error) {
 	var payload struct {
 		Article Article `json:"Article"`
 	}
-	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+	if err := resp.decodeData(&payload); err != nil {
 		return nil, fmt.Errorf("simplbooks: parse article: %w", err)
 	}
 	return &payload.Article, nil

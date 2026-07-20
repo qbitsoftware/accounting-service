@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/qbitsoftware/accounting-service/simplbooks"
+	"github.com/shopspring/decimal"
 )
 
 // SimplBooks customer-prepayment (ettemaks) support.
@@ -32,14 +33,28 @@ import (
 // carrying credit_invoice_for), so the EB "free the paid amount first" step is
 // unnecessary. This mirrors the SmartAccounts decision.
 //
-// LIMITATIONS (verify against a live Premium tenant before relying on these):
-//   - incomings/invoice_paid takes no amount, so ApplyPrepayment cannot settle a
-//     precise partial amount; it binds the receipt and lets SimplBooks settle by
-//     its sum (full_cover=false, so no forced write-off of the remainder).
-//   - incomings/list exposes neither the bound invoice nor a remaining balance,
-//     so ListPrepayments reports income_sum as both Amount and Remaining and
-//     cannot net already-applied advances. Reconcile true settlement via the
-//     invoice's paid/remnant fields (ListInvoices).
+// BEHAVIOUR, verified live against a Premium tenant 2026-07-20:
+//   - An advance draws down ACROSS invoices. Binding one 50 EUR advance to a
+//     30 EUR invoice and then to a 20 EUR invoice settles both fully; each bind
+//     applies min(advance remaining, invoice remnant). This is the same
+//     progressive-drawdown model as SmartAccounts and Excellent Books.
+//   - Partial settlement works in both directions: an advance smaller than the
+//     invoice leaves the invoice partly paid (10 EUR onto a 40 EUR invoice →
+//     remnant 30).
+//   - Because each bind applies min(remaining, remnant), a caller consuming
+//     lots FIFO gets the same allocation SimplBooks computes — so the missing
+//     amount parameter is not a practical limitation. It only bites if a caller
+//     wants to apply LESS than min(lot remaining, invoice remnant), which the
+//     API cannot express.
+//   - Binding an exhausted advance is a SILENT no-op that still answers HTTP
+//     200 / data:true; BindIncomingToInvoice converts it to ErrAlreadyAllocated.
+//
+// REMAINING LIMITATION: SimplBooks exposes no per-receipt remaining AMOUNT —
+// only the `bound` boolean (false = something left, true = fully consumed).
+// ListPrepayments therefore reports Remaining as the full sum while unbound and
+// zero once bound; it cannot report a partially-drawn balance. Callers that need
+// exact figures must track lots themselves (klubio does) or reconcile via the
+// invoices' paid/remnant fields.
 //
 // simplbooksProvider satisfies PrepaymentProvider.
 var _ PrepaymentProvider = (*simplbooksProvider)(nil)
@@ -137,8 +152,9 @@ func simplbooksPrepaymentDescription(prepaymentNo, comment string) string {
 
 // simplbooksPrepaymentsFromIncomings maps tagged advance receipts to Prepayments.
 // Pure, so the tag/customer/date filtering is unit-tested without the network.
-// Amount and Remaining both carry income_sum — SimplBooks does not expose the
-// already-applied portion of a receipt (see file-level LIMITATIONS).
+// Remaining is derived from the `bound` flag — the only allocation signal
+// SimplBooks exposes — so it is all-or-nothing, never a partial balance
+// (see the file header).
 func simplbooksPrepaymentsFromIncomings(incs []simplbooks.Incoming, customerCode string, since, until time.Time) []Prepayment {
 	wantClient := atoiOrZero(customerCode)
 	var out []Prepayment
@@ -154,12 +170,16 @@ func simplbooksPrepaymentsFromIncomings(incs []simplbooks.Incoming, customerCode
 		if !inDateRange(date, since, until) {
 			continue
 		}
+		remaining := inc.IncomeSum.Decimal
+		if inc.Bound {
+			remaining = decimal.Zero
+		}
 		out = append(out, Prepayment{
 			Number:       strconv.Itoa(inc.ID),
 			DocID:        strconv.Itoa(inc.ID),
 			CustomerCode: itoaOrEmpty(inc.ClientID),
 			Amount:       inc.IncomeSum.Decimal,
-			Remaining:    inc.IncomeSum.Decimal,
+			Remaining:    remaining,
 			Currency:     inc.CurrencyName,
 			Date:         date,
 			Comment:      inc.Description,

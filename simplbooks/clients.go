@@ -2,7 +2,6 @@ package simplbooks
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 )
@@ -16,7 +15,7 @@ func (c *Client) ListClients(ctx context.Context, params ListParams) ([]ClientRe
 	var rows []struct {
 		Client ClientRecord `json:"Client"`
 	}
-	if err := json.Unmarshal(resp.Data, &rows); err != nil {
+	if err := resp.decodeData(&rows); err != nil {
 		return nil, fmt.Errorf("simplbooks: parse clients: %w", err)
 	}
 	out := make([]ClientRecord, len(rows))
@@ -54,7 +53,7 @@ func (c *Client) GetClient(ctx context.Context, id string) (*ClientRecord, error
 	var payload struct {
 		Client ClientRecord `json:"Client"`
 	}
-	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+	if err := resp.decodeData(&payload); err != nil {
 		return nil, fmt.Errorf("simplbooks: parse client: %w", err)
 	}
 	return &payload.Client, nil
