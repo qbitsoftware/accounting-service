@@ -28,6 +28,27 @@ func (s *InvoiceService) UpdateDates(ctx context.Context, input UpdateInvoiceDat
 	return de.UpdateInvoiceDates(ctx, input)
 }
 
+// SupportsMarkSent reports whether the configured provider tracks a
+// sent-to-customer flag on the invoice (the optional InvoiceSentMarker
+// capability).
+func (s *InvoiceService) SupportsMarkSent() bool {
+	_, ok := s.provider.(InvoiceSentMarker)
+	return ok
+}
+
+// MarkSent flags an already-pushed invoice as sent. Returns
+// ErrUnsupportedProvider (wrapped with the provider name) when the provider does
+// not implement InvoiceSentMarker. For a fresh push set
+// CreateInvoiceInput.SentDate instead — it carries the true send date and costs
+// no extra request.
+func (s *InvoiceService) MarkSent(ctx context.Context, id string) error {
+	sm, ok := s.provider.(InvoiceSentMarker)
+	if !ok {
+		return &ProviderError{Provider: s.providerName, Op: "MarkInvoiceSent", Err: ErrUnsupportedProvider}
+	}
+	return sm.MarkInvoiceSent(ctx, id)
+}
+
 func (s *InvoiceService) Create(ctx context.Context, input CreateInvoiceInput) (*Invoice, error) {
 	return s.provider.CreateInvoice(ctx, input)
 }

@@ -87,6 +87,15 @@ func (c *Client) CreateInvoice(ctx context.Context, body any) (int, error) {
 	return resp.insertedID()
 }
 
+// MarkInvoiceSent flags the invoice as sent (SimplBooks stamps today's date in
+// its `sent` column). Use this to repair invoices that were pushed without a
+// sent date; a fresh push should carry `sent` in the create body instead, which
+// preserves the real send date and costs no extra request.
+func (c *Client) MarkInvoiceSent(ctx context.Context, id string) error {
+	_, err := c.do(ctx, "POST", "invoices/sent/"+id, nil)
+	return err
+}
+
 // DeleteInvoice deletes the invoice with the given ID.
 func (c *Client) DeleteInvoice(ctx context.Context, id string) error {
 	_, err := c.do(ctx, "POST", "invoices/delete/"+id, nil)

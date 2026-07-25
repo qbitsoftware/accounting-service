@@ -18,6 +18,13 @@ type CreateInvoiceInput struct {
 	CustomerType        string // Directo customer_type: "0"=company, "1"=private, "2"=government
 	DocDate             time.Time
 	DueDate             time.Time
+	// SentDate is the date the invoice was actually delivered to the customer by
+	// the calling system. Providers that track a delivery state on the document
+	// stamp it at creation, so an invoice that already went out from klubio does
+	// not sit in the accounting UI marked "not sent". Zero = leave the provider's
+	// own default (unsent). Only SimplBooks acts on this today; other adapters
+	// ignore it.
+	SentDate            time.Time
 	InvoiceNo           string
 	RefNo               string
 	Currency            string
@@ -163,6 +170,9 @@ type CreateCreditNoteInput struct {
 	CustomerCounty      string // Directo tax region / Asumaa for the inline customer
 	DocDate             time.Time
 	DueDate             time.Time
+	// SentDate mirrors CreateInvoiceInput.SentDate — the date the credit note was
+	// delivered to the customer. Zero = leave the provider's default (unsent).
+	SentDate            time.Time
 	InvoiceNo           string
 	RefNo               string
 	Currency            string

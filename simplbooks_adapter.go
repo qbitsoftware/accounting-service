@@ -84,6 +84,11 @@ func (p *simplbooksProvider) CreateInvoice(ctx context.Context, input CreateInvo
 	putIf(invoice, "created", formatSimplBooksDate(input.DocDate))
 	putIf(invoice, "transaction_date", formatSimplBooksDate(input.DocDate))
 	putIf(invoice, "due", formatSimplBooksDate(input.DueDate))
+	// SimplBooks tracks delivery on the document: an invoice created without a
+	// `sent` date shows as unsent in its UI. klubio only pushes invoices it has
+	// already mailed out, so carry the real send date across — otherwise every
+	// synced invoice looks like it is still waiting to go out.
+	putIf(invoice, "sent", formatSimplBooksDate(input.SentDate))
 	if input.Currency != "" {
 		invoice["currency_name"] = input.Currency
 	}
@@ -109,7 +114,32 @@ func (p *simplbooksProvider) CreateInvoice(ctx context.Context, input CreateInvo
 	if err != nil {
 		return nil, p.wrapError("CreateInvoice", err)
 	}
-	return p.GetInvoice(ctx, strconv.Itoa(id))
+	return p.getInvoiceEnsuringSent(ctx, strconv.Itoa(id), input.SentDate, "CreateInvoice")
+}
+
+// getInvoiceEnsuringSent reads a freshly created invoice back and, when a send
+// date was asked for but did not stick, repairs the flag via invoices/sent.
+//
+// `sent` is a documented create field, but a create that quietly drops it would
+// leave every synced invoice showing as unsent — the exact problem this is meant
+// to fix — with no signal at the call site. The read-back happens anyway, so the
+// check is free; the extra request is only spent when the field was ignored, and
+// it stamps SimplBooks' current date rather than the original send date.
+func (p *simplbooksProvider) getInvoiceEnsuringSent(ctx context.Context, id string, want time.Time, op string) (*Invoice, error) {
+	inv, err := p.client.GetInvoice(ctx, id)
+	if err != nil {
+		return nil, p.wrapError(op, err)
+	}
+	if !want.IsZero() && parseSimplBooksDate(inv.Sent).IsZero() {
+		if markErr := p.client.MarkInvoiceSent(ctx, id); markErr != nil {
+			// Non-fatal: the document itself is correct, it just displays as
+			// unsent. Failing the create here would have klubio retry and
+			// duplicate the invoice, which is far worse than a wrong flag.
+			slog.Warn("simplbooks: invoice created but could not be marked as sent",
+				"invoice_id", id, "error", markErr)
+		}
+	}
+	return mapSimplBooksInvoice(inv), nil
 }
 
 func (p *simplbooksProvider) GetInvoice(ctx context.Context, id string) (*Invoice, error) {
@@ -118,6 +148,13 @@ func (p *simplbooksProvider) GetInvoice(ctx context.Context, id string) (*Invoic
 		return nil, p.wrapError("GetInvoice", err)
 	}
 	return mapSimplBooksInvoice(inv), nil
+}
+
+// MarkInvoiceSent implements InvoiceSentMarker. SimplBooks stamps its own
+// current date — the endpoint takes no date argument — so this is the repair
+// path for invoices pushed before the sent date was carried on create.
+func (p *simplbooksProvider) MarkInvoiceSent(ctx context.Context, id string) error {
+	return p.wrapError("MarkInvoiceSent", p.client.MarkInvoiceSent(ctx, id))
 }
 
 func (p *simplbooksProvider) GetInvoicePDF(ctx context.Context, id string, _ bool) (*InvoicePDF, error) {
@@ -508,6 +545,7 @@ func (p *simplbooksProvider) CreateCreditNote(ctx context.Context, input CreateC
 		"due":              formatSimplBooksDate(input.DueDate),
 		"row_sum_with_vat": false,
 	}
+	putIf(invoice, "sent", formatSimplBooksDate(input.SentDate)) // see CreateInvoice
 	if id := atoiOrZero(input.CustomerID); id != 0 {
 		invoice["client_id"] = id
 	}
@@ -543,7 +581,7 @@ func (p *simplbooksProvider) CreateCreditNote(ctx context.Context, input CreateC
 	if err != nil {
 		return nil, p.wrapError("CreateCreditNote", err)
 	}
-	return p.GetInvoice(ctx, strconv.Itoa(id))
+	return p.getInvoiceEnsuringSent(ctx, strconv.Itoa(id), input.SentDate, "CreateCreditNote")
 }
 
 // --- Purchases ---
