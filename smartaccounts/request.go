@@ -100,18 +100,24 @@ func (c *Client) do(ctx context.Context, method, endpoint string, params url.Val
 		statusCode = resp.StatusCode
 
 		// Retry on rate limiting (SA returns 503 for rate limits and 429 for some
-		// proxies). Only retry when a Retry-After is given so we don't hammer a
-		// genuine 503 billing/outage, and honour the delay it asks for.
+		// proxies). SA sends no Retry-After, so waiting for one meant a rate-limited
+		// request was never retried at all — a per-customer sweep then silently lost
+		// every customer for the rest of the minute. Honour Retry-After when present,
+		// otherwise back off exponentially; the attempt cap bounds a genuine outage.
 		if (statusCode == http.StatusTooManyRequests || statusCode == http.StatusServiceUnavailable) && attempt < maxRateLimitRetries {
-			if delay, ok := retryAfter(resp.Header); ok {
-				slog.Warn("smartaccounts api rate-limited; backing off", "endpoint", endpoint, "status", statusCode, "delay", delay, "attempt", attempt+1)
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-time.After(delay):
-				}
-				continue
+			delay, fromHeader := retryAfter(resp.Header)
+			if !fromHeader {
+				delay = rateLimitBackoff(attempt)
 			}
+			slog.Warn("smartaccounts api rate-limited; backing off",
+				"endpoint", endpoint, "status", statusCode, "delay", delay,
+				"attempt", attempt+1, "retry_after_header", fromHeader)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+			continue
 		}
 		break
 	}
@@ -128,6 +134,22 @@ func (c *Client) do(ctx context.Context, method, endpoint string, params url.Val
 		}
 	}
 	return nil
+}
+
+// rateLimitBackoff is the delay before retry N (0-based) when the response
+// carries no Retry-After. SA's per-minute window rolls within a minute, so the
+// tail waits are long enough to land in a fresh window: 5s, 15s, 30s, 60s.
+func rateLimitBackoff(attempt int) time.Duration {
+	switch attempt {
+	case 0:
+		return 5 * time.Second
+	case 1:
+		return 15 * time.Second
+	case 2:
+		return 30 * time.Second
+	default:
+		return 60 * time.Second
+	}
 }
 
 // retryAfter parses a Retry-After header in either form — delta-seconds

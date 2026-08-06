@@ -28,12 +28,19 @@ import (
 const DefaultHost = "sa.smartaccounts.eu"
 
 // SmartAccounts rate limits per company (apikey): 60 req/min and 1000 req/day.
-// We default to a 1 req/s sustained rate with a small burst so short flurries
-// (e.g. CreatePayment's lookup + create pair) don't artificially wait, while
-// keeping average throughput well under the per-minute cap.
+// A sustained 1 req/s sits exactly ON the per-minute cap, so any burst — or any
+// other call sharing the same company key — crosses it and SA answers 503 for
+// every subsequent request until the window rolls. Default to ~45 req/min with a
+// small burst, which leaves headroom for concurrent work on the same key while
+// short flurries (e.g. CreatePayment's lookup + create pair) still don't wait.
 const (
+	DefaultRequestInterval = 1333 * time.Millisecond // ~45 req/min
+	DefaultBurst           = 3
+
+	// DefaultRatePerSecond is the legacy whole-requests-per-second default.
+	// Deprecated: superseded by DefaultRequestInterval, which can express a
+	// sub-1/s rate. Kept so existing callers still compile.
 	DefaultRatePerSecond = 1
-	DefaultBurst         = 5
 )
 
 // Config holds the configuration for a SmartAccounts API client.
@@ -60,10 +67,13 @@ type Config struct {
 	// RatePerSecond and Burst configure proactive client-side throttling so we
 	// stay under SmartAccounts' 60 req/min, 1000 req/day per-company limits
 	// rather than relying solely on reactive 503/Retry-After backoff. Both
-	// zero (the default) → DefaultRatePerSecond / DefaultBurst. Set
+	// zero (the default) → DefaultRequestInterval / DefaultBurst. Set
 	// RatePerSecond to a negative value to disable throttling entirely (tests).
-	RatePerSecond int
-	Burst         int
+	// RequestInterval expresses the same thing with sub-second granularity and
+	// wins over RatePerSecond when both are set.
+	RatePerSecond   int
+	RequestInterval time.Duration
+	Burst           int
 
 	// NettingBank, when set, is the bank account NAME used to post a netting
 	// payment that closes a credit invoice against its original immediately on
@@ -109,15 +119,18 @@ func New(cfg Config) *Client {
 	case cfg.RatePerSecond < 0:
 		limiter = nil // explicitly disabled
 	default:
-		rps := cfg.RatePerSecond
-		if rps == 0 {
-			rps = DefaultRatePerSecond
+		interval := cfg.RequestInterval
+		if interval <= 0 && cfg.RatePerSecond > 0 {
+			interval = time.Second / time.Duration(cfg.RatePerSecond)
+		}
+		if interval <= 0 {
+			interval = DefaultRequestInterval
 		}
 		burst := cfg.Burst
 		if burst <= 0 {
 			burst = DefaultBurst
 		}
-		limiter = rate.NewLimiter(rate.Every(time.Second/time.Duration(rps)), burst)
+		limiter = rate.NewLimiter(rate.Every(interval), burst)
 	}
 
 	return &Client{
