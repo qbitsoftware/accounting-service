@@ -1,6 +1,9 @@
 package merit
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // ListPurchases retrieves a list of purchase invoices for the given period.
 // The period may not span more than 3 months.
@@ -33,4 +36,21 @@ func (c *Client) CreatePurchase(ctx context.Context, req CreatePurchaseRequest) 
 // DeletePurchase deletes a purchase invoice by ID.
 func (c *Client) DeletePurchase(ctx context.Context, params DeletePurchaseParams) error {
 	return c.post(ctx, "v1/deletepurchinvoice", params, nil)
+}
+
+// ListPurchasesRange retrieves purchase invoices over any range, splitting it
+// into as many legal calls as Merit's 3-month cap requires and merging the
+// results. Deduplicated by PIHId; see ListInvoicesRange for the error contract.
+func (c *Client) ListPurchasesRange(ctx context.Context, start, end time.Time, params ListPurchasesParams) ([]PurchaseListItem, error) {
+	periods := SplitPeriod(start, end)
+	if len(periods) == 0 {
+		return nil, nil
+	}
+	items, err := fetchRange(ctx, periods, func(ctx context.Context, p Period) ([]PurchaseListItem, error) {
+		q := params
+		q.PeriodStart = FormatDate(p.Start)
+		q.PeriodEnd = FormatDate(p.End)
+		return c.ListPurchases(ctx, q)
+	})
+	return dedupeBy(items, func(i PurchaseListItem) string { return i.PIHId }), err
 }

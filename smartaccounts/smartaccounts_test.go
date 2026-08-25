@@ -80,10 +80,11 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) *Client {
 	srv := httptest.NewTLSServer(handler)
 	t.Cleanup(srv.Close)
 	return New(Config{
-		Host:       strings.TrimPrefix(srv.URL, "https://"),
-		APIKey:     "pub-key",
-		SecretKey:  "secret-key",
-		HTTPClient: srv.Client(),
+		Host:          strings.TrimPrefix(srv.URL, "https://"),
+		APIKey:        "pub-key",
+		SecretKey:     "secret-key",
+		HTTPClient:    srv.Client(),
+		RatePerSecond: -1, // no throttling against a local test server
 	})
 }
 

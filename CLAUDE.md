@@ -64,7 +64,48 @@ Located in `merit/` directory:
 - `merit/request.go`: HTTP request building and error handling
 - Domain-specific files: `invoices.go`, `customers.go`, `payments.go`, `items.go`, `purchases.go`, `vendors.go`, `taxes.go`, `accounts.go`, `reports.go`
 - `merit/types.go`: Merit API request/response types
-- `merit/merit_test.go`: Comprehensive test suite using httptest for mocking
+- `merit/window.go`: period splitting for Merit's 3-month-per-call cap (`SplitPeriod`, `MaxPeriodDays`)
+- `merit/range.go`: generic range walk + `PartialRangeError`
+- `merit/limiter.go`: process-wide rate limiter shared per API ID
+- `merit/merit_test.go`, `merit/hardening_test.go`: test suite using httptest for mocking
+
+### Merit period limit — never build a window by hand
+
+Merit rejects any list call whose period spans more than 3 months with HTTP 400
+`Periood liiga pikk(max 3 kuud)`. **That is a limit on one call, not on how far
+back Merit will look** — history of any age is reachable by asking for the
+window it falls in.
+
+- Use `ListInvoicesRange` / `ListPaymentsRange` / `ListPurchasesRange` (and the
+  adapter methods that call them) for anything wider than a few weeks. They
+  split the range via `SplitPeriod` into `MaxPeriodDays` (85) slices that tile
+  it exactly — no gap that would drop a day's invoices, no overlap that would
+  book a payment twice — and merge the results, deduplicated by id.
+- The bare `ListInvoices` / `ListPayments` / `ListPurchases` are the raw
+  single-call form and will 400 on a wide period. `MaxPeriodDays` is 85, not 90,
+  because three *calendar* months can be as short as 89 days (1 Dec → 1 Mar).
+- **A range walk returns partial results with its error.** When some windows
+  succeed and others fail you get the fetched rows *and* a `*PartialRangeError`;
+  when all fail you get no rows. Callers keeping the usual `if err != nil`
+  shape are unaffected. Use `accounting.IsPartialResult(err)` to tell "nothing
+  found" from "the window that held it failed" — those mean opposite things
+  when reconciling payments. `merit.IsPeriodTooLong(err)` identifies the 400
+  itself, for a caller that built its own window.
+
+### Merit rate limiting and retries
+
+Merit allows ~100 requests/minute **per API ID**, and callers here construct a
+fresh `Client` per operation — so the limiter is shared process-wide, keyed by
+API ID + host (`merit/limiter.go`), exactly as SmartAccounts' is. A limiter
+living on one Client would throttle nothing the moment a scheduled pull, a
+manual sync and a batch push overlap on the same credentials. The most
+conservative configuration seen for a key wins. Still per-process: with several
+replicas the quota splits again.
+
+`merit/request.go` also retries 429/502/503/504 (honouring `Retry-After`,
+otherwise 2s/8s/20s/45s), re-signing each attempt because the signature embeds
+a timestamp. Other non-2xx statuses are answers about the request itself and are
+never retried. `DisableRateLimit: true` turns throttling off for tests.
 
 ## Key Design Patterns
 

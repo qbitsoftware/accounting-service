@@ -106,15 +106,15 @@ func (p *meritProvider) CreateInvoice(ctx context.Context, input CreateInvoiceIn
 	}
 
 	return &Invoice{
-		ID:          resp.InvoiceID,
-		Number:      resp.InvoiceNo,
+		ID:           resp.InvoiceID,
+		Number:       resp.InvoiceNo,
 		CustomerName: input.CustomerName,
-		CustomerID:  resp.CustomerID,
-		DocDate:     input.DocDate,
-		DueDate:     input.DueDate,
-		Currency:    input.Currency,
-		ReferenceNo: resp.RefNo,
-		Status:      InvoiceStatusUnpaid,
+		CustomerID:   resp.CustomerID,
+		DocDate:      input.DocDate,
+		DueDate:      input.DueDate,
+		Currency:     input.Currency,
+		ReferenceNo:  resp.RefNo,
+		Status:       InvoiceStatusUnpaid,
 	}, nil
 }
 
@@ -146,20 +146,17 @@ func (p *meritProvider) GetInvoicePDF(ctx context.Context, id string, deliveryNo
 	}, nil
 }
 
+// ListInvoices fetches every invoice in the requested range. The range is split
+// into as many calls as Merit's 3-month period cap requires, so callers may ask
+// for any span — a year of history costs more requests, not an error.
+//
+// When some periods fail and others succeed the invoices that were fetched are
+// returned ALONGSIDE the error (a *merit.PartialRangeError). Callers that need
+// completeness keep the existing `if err != nil` shape and discard them;
+// callers that prefer progress over an all-or-nothing run use both.
 func (p *meritProvider) ListInvoices(ctx context.Context, input ListInvoicesInput) ([]Invoice, error) {
-	items, err := p.client.ListInvoices(ctx, merit.ListInvoicesParams{
-		PeriodStart: formatDate(input.PeriodStart),
-		PeriodEnd:   formatDate(input.PeriodEnd),
-	})
-	if err != nil {
-		return nil, p.wrapError("ListInvoices", err)
-	}
-
-	invoices := make([]Invoice, len(items))
-	for i, item := range items {
-		invoices[i] = mapInvoiceListItem(item)
-	}
-	return invoices, nil
+	items, err := p.client.ListInvoicesRange(ctx, input.PeriodStart, input.PeriodEnd, merit.ListInvoicesParams{})
+	return mapInvoiceListItems(items), p.wrapError("ListInvoices", err)
 }
 
 func (p *meritProvider) FindInvoiceByRef(_ context.Context, _ string) (*Invoice, error) {
@@ -305,20 +302,12 @@ func (p *meritProvider) CreatePayment(ctx context.Context, input CreatePaymentIn
 	return p.wrapError("CreatePayment", err)
 }
 
+// ListPayments fetches every payment in the requested range, splitting it
+// across Merit's 3-month period cap. See ListInvoices for the partial-failure
+// contract.
 func (p *meritProvider) ListPayments(ctx context.Context, input ListPaymentsInput) ([]Payment, error) {
-	items, err := p.client.ListPayments(ctx, merit.ListPaymentsParams{
-		PeriodStart: formatDate(input.PeriodStart),
-		PeriodEnd:   formatDate(input.PeriodEnd),
-	})
-	if err != nil {
-		return nil, p.wrapError("ListPayments", err)
-	}
-
-	payments := make([]Payment, len(items))
-	for i, item := range items {
-		payments[i] = mapPaymentListItem(item)
-	}
-	return payments, nil
+	items, err := p.client.ListPaymentsRange(ctx, input.PeriodStart, input.PeriodEnd, merit.ListPaymentsParams{})
+	return mapPaymentListItems(items), p.wrapError("ListPayments", err)
 }
 
 func (p *meritProvider) DeletePayment(ctx context.Context, id string) error {
@@ -502,10 +491,7 @@ func (p *meritProvider) GetPurchase(ctx context.Context, id string) (*PurchaseIn
 }
 
 func (p *meritProvider) ListPurchases(ctx context.Context, input ListPurchasesInput) ([]PurchaseInvoice, error) {
-	items, err := p.client.ListPurchases(ctx, merit.ListPurchasesParams{
-		PeriodStart: formatDate(input.PeriodStart),
-		PeriodEnd:   formatDate(input.PeriodEnd),
-	})
+	items, err := p.client.ListPurchasesRange(ctx, input.PeriodStart, input.PeriodEnd, merit.ListPurchasesParams{})
 	if err != nil {
 		return nil, p.wrapError("ListPurchases", err)
 	}
@@ -681,40 +667,42 @@ func (p *meritProvider) CustomerDebts(ctx context.Context, customerName string, 
 // --- Sync ---
 
 func (p *meritProvider) ListInvoicesSince(ctx context.Context, since time.Time, until time.Time) ([]Invoice, error) {
-	items, err := p.client.ListInvoices(ctx, merit.ListInvoicesParams{
-		PeriodStart: formatDate(since),
-		PeriodEnd:   formatDate(until),
-		DateType:    intPtr(1), // 1 = changed date
+	items, err := p.client.ListInvoicesRange(ctx, since, until, merit.ListInvoicesParams{
+		DateType: intPtr(1), // 1 = changed date
 	})
-	if err != nil {
-		return nil, p.wrapError("ListInvoicesSince", err)
-	}
-
-	invoices := make([]Invoice, len(items))
-	for i, item := range items {
-		invoices[i] = mapInvoiceListItem(item)
-	}
-	return invoices, nil
+	return mapInvoiceListItems(items), p.wrapError("ListInvoicesSince", err)
 }
 
 func (p *meritProvider) ListPaymentsSince(ctx context.Context, since time.Time, until time.Time) ([]Payment, error) {
-	items, err := p.client.ListPayments(ctx, merit.ListPaymentsParams{
-		PeriodStart: formatDate(since),
-		PeriodEnd:   formatDate(until),
-		DateType:    intPtr(1), // 1 = changed date
+	items, err := p.client.ListPaymentsRange(ctx, since, until, merit.ListPaymentsParams{
+		DateType: intPtr(1), // 1 = changed date
 	})
-	if err != nil {
-		return nil, p.wrapError("ListPaymentsSince", err)
-	}
-
-	payments := make([]Payment, len(items))
-	for i, item := range items {
-		payments[i] = mapPaymentListItem(item)
-	}
-	return payments, nil
+	return mapPaymentListItems(items), p.wrapError("ListPaymentsSince", err)
 }
 
 // --- Mapping helpers ---
+
+func mapInvoiceListItems(items []merit.InvoiceListItem) []Invoice {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]Invoice, len(items))
+	for i, item := range items {
+		out[i] = mapInvoiceListItem(item)
+	}
+	return out
+}
+
+func mapPaymentListItems(items []merit.PaymentListItem) []Payment {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]Payment, len(items))
+	for i, item := range items {
+		out[i] = mapPaymentListItem(item)
+	}
+	return out
+}
 
 func mapInvoiceListItem(item merit.InvoiceListItem) Invoice {
 	return Invoice{

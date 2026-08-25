@@ -41,6 +41,33 @@ func IsRateLimit(err error) bool {
 	return errors.Is(err, ErrRateLimit)
 }
 
+// PartialResultError is implemented by errors that accompany a usable partial
+// result. It exists because some providers cap how much history one call may
+// cover (Merit: 3 months per list call), so a wide range is fetched as several
+// calls and one of them failing does not invalidate the rest.
+//
+// Providers report it rather than swallowing it: a caller reconciling payments
+// needs to know it saw 11 windows of 12, because "no payment found" and "the
+// window that held it failed" mean opposite things.
+type PartialResultError interface {
+	error
+	// PartialResult reports how many sub-requests failed out of how many the
+	// range was split into.
+	PartialResult() (failed, total int)
+}
+
+// IsPartialResult reports whether err carries a usable partial result, and how
+// much of the range was missed. Results returned alongside such an error are
+// safe to use; they are simply incomplete.
+func IsPartialResult(err error) (failed, total int, ok bool) {
+	var p PartialResultError
+	if errors.As(err, &p) {
+		failed, total = p.PartialResult()
+		return failed, total, true
+	}
+	return 0, 0, false
+}
+
 // IsCustomerExistsError reports whether err is a Merit "customer already
 // exists" error. Merit returns these as plain-text body containing
 // "custexists" rather than a structured status — string matching is the

@@ -111,8 +111,13 @@ func TestNew(t *testing.T) {
 		if c.apiID != "test-id" {
 			t.Errorf("expected apiID %q, got %q", "test-id", c.apiID)
 		}
-		if c.httpClient != http.DefaultClient {
-			t.Error("expected default HTTP client")
+		// Deliberately NOT http.DefaultClient: that has no timeout, so a
+		// hung connection pins a scheduler worker indefinitely.
+		if c.httpClient == http.DefaultClient {
+			t.Error("default client must not be the timeout-less http.DefaultClient")
+		}
+		if c.httpClient.Timeout != DefaultTimeout {
+			t.Errorf("expected default timeout %v, got %v", DefaultTimeout, c.httpClient.Timeout)
 		}
 	})
 

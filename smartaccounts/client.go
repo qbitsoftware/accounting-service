@@ -27,12 +27,21 @@ import (
 // DefaultHost is the SmartAccounts API host.
 const DefaultHost = "sa.smartaccounts.eu"
 
-// SmartAccounts rate limits per company (apikey): 60 req/min and 1000 req/day.
+// SmartAccounts processes at most 60 requests per minute and 1000 requests per
+// 24 hours, per company; anything beyond either limit is answered 503 ("Rate
+// Limit Exceeded"). Both figures are from SmartAccounts_API_latest.pdf,
+// § Request limits — note 503 is also their billing-error code, so a 503 is not
+// proof of rate limiting on its own.
+//
 // A sustained 1 req/s sits exactly ON the per-minute cap, so any burst — or any
 // other call sharing the same company key — crosses it and SA answers 503 for
 // every subsequent request until the window rolls. Default to ~45 req/min with a
 // small burst, which leaves headroom for concurrent work on the same key while
 // short flurries (e.g. CreatePayment's lookup + create pair) still don't wait.
+//
+// The 24h limit is NOT enforced here: 1000/day is a budget question for the
+// caller (how often it syncs, how many entities it sweeps), not something a
+// per-request throttle can smooth away.
 const (
 	DefaultRequestInterval = 1333 * time.Millisecond // ~45 req/min
 	DefaultBurst           = 3
@@ -130,7 +139,10 @@ func New(cfg Config) *Client {
 		if burst <= 0 {
 			burst = DefaultBurst
 		}
-		limiter = rate.NewLimiter(rate.Every(interval), burst)
+		// Shared per API key: SmartAccounts' quota is per company, and clients are
+		// constructed per operation, so a per-instance limiter throttles nothing
+		// once two operations for the same company overlap. See limiter.go.
+		limiter = sharedLimiter(host, cfg.APIKey, interval, burst)
 	}
 
 	return &Client{
