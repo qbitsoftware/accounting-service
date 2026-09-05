@@ -2,23 +2,37 @@ package accounting
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/qbitsoftware/accounting-service/merit"
 )
 
-// Merit customer-prepayment (ettemaks) support — PUSH + FETCH only (v1).
+// Merit customer-prepayment (ettemaks) support — PUSH, FETCH and APPLY.
 //
 // PUSH:  CreatePrepayment parks an unallocated customer advance via
-//        POST v2/Banks/{bankId}/PrePayments/ForCustomer/{customerId}.
-// FETCH: ListPrepayments reads advances back from the customer-debt report
-//        (getcustdebtrep), where a prepayment appears as a DocType="BA" line
-//        with a negative UnPaidAmount and a stable DocId.
 //
-// APPLY is intentionally NOT supported: Merit has no confirmed API to allocate
-// a prepayment to a specific invoice and does not auto-apply (verified live).
-// klubio keeps apply EB-only and leaves Merit allocation to the accountant.
-// See docs/MERIT_PREPAYMENT_PLAN.md (SCOPE DECISION).
+//	POST v2/Banks/{bankId}/PrePayments/ForCustomer/{customerId}.
+//
+// FETCH: ListPrepayments reads advances back from the customer-debt report
+//
+//	(getcustdebtrep), where a prepayment appears as a DocType="BA" line
+//	with a negative UnPaidAmount and a stable DocId.
+//
+// APPLY: ApplyPrepayment offsets an advance against a specific sales invoice
+//
+//	with a two-line settlement (POST v2/sendsettlement).
+//
+// APPLY was reported as unsupported here for a long time, on the belief that
+// Merit exposes no allocation endpoint and does not auto-apply. The second half
+// is true; the first is not. There is no *dedicated* apply endpoint, but a
+// settlement (tasaarveldus) does exactly the job, and the reference manual has
+// always documented Prepayment as one of the document types a settlement line
+// may carry. Verified live in merit/phase0_settle_prepayment_test.go.
+//
+// The belief was expensive: klubio applied members' credit locally, Merit never
+// learned of it, the two ledgers drifted apart, and each application became a
+// manual allocation for the club's bookkeeper.
 //
 // meritProvider satisfies PrepaymentProvider.
 var _ PrepaymentProvider = (*meritProvider)(nil)
@@ -95,9 +109,40 @@ func meritAdvancesFromDebts(items []merit.CustomerDebtItem) []Prepayment {
 	return out
 }
 
-// ApplyPrepayment is not supported on Merit (v1). See SCOPE DECISION.
+// ApplyPrepayment allocates a customer advance to a specific sales invoice by
+// posting a two-line settlement (tasaarveldus): the invoice positive, the
+// prepayment negative, totalling zero.
+//
+// This was reported as unsupported for a long time, on the belief that Merit
+// offers no allocation endpoint. It does — just not a dedicated one. The cost of
+// that belief was real: klubio spent members' credit locally, Merit never
+// learned, the two ledgers drifted, and every application became a manual
+// allocation for the club's bookkeeper. See merit/settlements.go for the live
+// verification.
+//
+// input.PrepaymentNo is the advance's DocumentNumber and input.InvoiceNo the
+// sales invoice's number — both are document numbers here, NOT the GUIDs used
+// elsewhere in this adapter.
 func (p *meritProvider) ApplyPrepayment(ctx context.Context, input ApplyPrepaymentInput) error {
-	return p.wrapError("ApplyPrepayment", ErrUnsupportedProvider)
+	if input.InvoiceNo == "" || input.PrepaymentNo == "" {
+		return p.wrapError("ApplyPrepayment", fmt.Errorf("both InvoiceNo and PrepaymentNo are required"))
+	}
+	if !input.Amount.IsPositive() {
+		return p.wrapError("ApplyPrepayment", fmt.Errorf("amount must be positive, got %s", input.Amount))
+	}
+	date := input.PaymentDate
+	if date.IsZero() {
+		date = time.Now().UTC()
+	}
+	_, err := p.client.SendSettlement(ctx, merit.SettlementRequest{
+		DocDate:      date.Format(meritDateFormat),
+		CurrencyCode: input.Currency,
+		CustLines: []merit.SettlementLine{
+			{CustVendID: input.CustomerCode, DocNo: input.InvoiceNo, Amount: input.Amount},
+			{CustVendID: input.CustomerCode, DocNo: input.PrepaymentNo, Amount: input.Amount.Neg()},
+		},
+	})
+	return p.wrapError("ApplyPrepayment", err)
 }
 
 // UnallocateToPrepayment is not supported on Merit (v1). See SCOPE DECISION.
