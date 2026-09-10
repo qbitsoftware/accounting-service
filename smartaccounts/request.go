@@ -89,6 +89,7 @@ func (c *Client) do(ctx context.Context, method, endpoint string, params url.Val
 		}
 
 		resp, err := c.httpClient.Do(req)
+		c.noteRequest(endpoint) // a 503 is spent budget too, so count before checking
 		if err != nil {
 			return fmt.Errorf("smartaccounts: send request: %w", err)
 		}

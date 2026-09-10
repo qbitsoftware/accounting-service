@@ -100,6 +100,7 @@ type Client struct {
 	secretKey   string
 	httpClient  *http.Client
 	limiter     *rate.Limiter // nil = no throttling
+	budget      *dayBudget    // 24h request meter, shared per company; nil = not metered
 	nettingBank string        // "" = auto-settle disabled
 }
 
@@ -146,11 +147,15 @@ func New(cfg Config) *Client {
 	}
 
 	return &Client{
-		baseURL:     "https://" + host + "/" + lang + "/api/",
-		apiKey:      cfg.APIKey,
-		secretKey:   cfg.SecretKey,
-		httpClient:  httpClient,
-		limiter:     limiter,
+		baseURL:    "https://" + host + "/" + lang + "/api/",
+		apiKey:     cfg.APIKey,
+		secretKey:  cfg.SecretKey,
+		httpClient: httpClient,
+		limiter:    limiter,
+		// Shared per company for the same reason the limiter is: clients are
+		// built per operation, so a meter living on one of them would report a
+		// fraction of the company's spend as the whole of it.
+		budget:      sharedBudget(host, cfg.APIKey),
 		nettingBank: cfg.NettingBank,
 	}
 }

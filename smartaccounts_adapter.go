@@ -426,6 +426,14 @@ func (p *smartProvider) GetCustomer(ctx context.Context, id string) (*Customer, 
 	return &c, nil
 }
 
+// FindCustomerByEmail scans the whole client register: SmartAccounts'
+// clients:get has filters for id and nameOrRegCode but none for an email
+// address, so there is no server-side question to ask. That makes this call
+// cost one request per 100 clients — against a budget of 1000 requests per 24
+// hours per company — so it must never be issued once per invoice in a loop.
+// Callers holding a full customer list (see ListCustomers, which reads the same
+// register through the same mapping) should consult that instead; a miss there
+// is a miss here.
 func (p *smartProvider) FindCustomerByEmail(ctx context.Context, email string) (*Customer, error) {
 	items, err := p.client.ListClients(ctx, smartaccounts.ListClientsParams{})
 	if err != nil {
@@ -1094,7 +1102,14 @@ func (p *smartProvider) wrapError(op string, err error) error {
 		case 404:
 			sentinel = ErrNotFound
 		case 429, 503:
-			sentinel = ErrRateLimit
+			// SmartAccounts answers 503 for BOTH of its caps — 60 requests per
+			// minute and 1000 per 24 hours — and says which in neither the status
+			// nor the body. The difference matters to whoever reads the error: a
+			// minute overrun clears in seconds, a spent daily budget does not
+			// clear until the oldest requests age out, and "rate limit exceeded"
+			// on its own reads as a klubio bug worth retrying, which only spends
+			// more of the budget that is already gone. Name both.
+			sentinel = fmt.Errorf("%w (SmartAccounts allows 60 requests/minute and 1000 per 24 hours per company; a spent 24h budget clears only as the oldest requests age out)", ErrRateLimit)
 		default:
 			sentinel = err
 		}
