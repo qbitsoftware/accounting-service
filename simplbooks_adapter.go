@@ -35,8 +35,8 @@ type simplbooksProvider struct {
 	// the provider — klubio builds one client per sync run, so a batch costs a
 	// single articles/list against the 60 req/min budget.
 	articleMu     sync.Mutex
-	articleByCode map[string]int  // lower(code) -> article id
-	articleIDs    map[int]bool    // known ids, to validate a numeric code
+	articleByCode map[string]int // lower(code) -> article id
+	articleIDs    map[int]bool   // known ids, to validate a numeric code
 	articleLoaded bool
 }
 
@@ -78,6 +78,9 @@ func (p *simplbooksProvider) CreateInvoice(ctx context.Context, input CreateInvo
 		"row_sum_with_vat": false, // line prices are net; VAT is added per row
 		"client_id":        clientID,
 	}
+	if r, ok := simplbooksRounding(input.Lines, input.TotalWithVAT); ok {
+		invoice["rounding"] = r.String()
+	}
 	// Dates are only sent when set: formatSimplBooksDate returns "" for a zero
 	// time, and an empty string is not "use the account default" — it either
 	// 400s or stores 0000-00-00.
@@ -114,18 +117,26 @@ func (p *simplbooksProvider) CreateInvoice(ctx context.Context, input CreateInvo
 	if err != nil {
 		return nil, p.wrapError("CreateInvoice", err)
 	}
-	return p.getInvoiceEnsuringSent(ctx, strconv.Itoa(id), input.SentDate, "CreateInvoice")
+	return p.getInvoiceEnsuringSent(ctx, strconv.Itoa(id), input.SentDate, input.TotalWithVAT, "CreateInvoice")
 }
 
 // getInvoiceEnsuringSent reads a freshly created invoice back and, when a send
-// date was asked for but did not stick, repairs the flag via invoices/sent.
+// date was asked for but did not stick, repairs the flag via invoices/sent. It
+// also checks that SimplBooks totalled the document to the same figure the
+// caller billed.
 //
 // `sent` is a documented create field, but a create that quietly drops it would
 // leave every synced invoice showing as unsent — the exact problem this is meant
 // to fix — with no signal at the call site. The read-back happens anyway, so the
 // check is free; the extra request is only spent when the field was ignored, and
 // it stamps SimplBooks' current date rather than the original send date.
-func (p *simplbooksProvider) getInvoiceEnsuringSent(ctx context.Context, id string, want time.Time, op string) (*Invoice, error) {
+//
+// wantTotal is the gross the caller has already billed; zero means it did not
+// say. Nothing here corrects a disagreement — the document is created and the
+// customer holds the invoice either way — but a provider that rounds differently
+// from the caller is a fact worth learning on the day it happens rather than
+// from a club reconciling its books months later.
+func (p *simplbooksProvider) getInvoiceEnsuringSent(ctx context.Context, id string, want time.Time, wantTotal decimal.Decimal, op string) (*Invoice, error) {
 	inv, err := p.client.GetInvoice(ctx, id)
 	if err != nil {
 		return nil, p.wrapError(op, err)
@@ -138,6 +149,16 @@ func (p *simplbooksProvider) getInvoiceEnsuringSent(ctx context.Context, id stri
 			slog.Warn("simplbooks: invoice created but could not be marked as sent",
 				"invoice_id", id, "error", markErr)
 		}
+	}
+	if !wantTotal.IsZero() && !inv.TotalSum.Equal(wantTotal) {
+		slog.Error("simplbooks: provider totalled the document differently from the invoice we billed",
+			"op", op,
+			"invoice_id", id,
+			"number", inv.Number,
+			"billed", wantTotal.String(),
+			"provider_total", inv.TotalSum.String(),
+			"difference", inv.TotalSum.Sub(wantTotal).String(),
+			"provider_rounding", inv.Rounding.String())
 	}
 	return mapSimplBooksInvoice(inv), nil
 }
@@ -545,6 +566,9 @@ func (p *simplbooksProvider) CreateCreditNote(ctx context.Context, input CreateC
 		"due":              formatSimplBooksDate(input.DueDate),
 		"row_sum_with_vat": false,
 	}
+	if r, ok := simplbooksRounding(input.Lines, input.TotalWithVAT); ok {
+		invoice["rounding"] = r.String() // see CreateInvoice
+	}
 	putIf(invoice, "sent", formatSimplBooksDate(input.SentDate)) // see CreateInvoice
 	if id := atoiOrZero(input.CustomerID); id != 0 {
 		invoice["client_id"] = id
@@ -581,7 +605,7 @@ func (p *simplbooksProvider) CreateCreditNote(ctx context.Context, input CreateC
 	if err != nil {
 		return nil, p.wrapError("CreateCreditNote", err)
 	}
-	return p.getInvoiceEnsuringSent(ctx, strconv.Itoa(id), input.SentDate, "CreateCreditNote")
+	return p.getInvoiceEnsuringSent(ctx, strconv.Itoa(id), input.SentDate, input.TotalWithVAT, "CreateCreditNote")
 }
 
 // --- Purchases ---
@@ -787,6 +811,53 @@ func (p *simplbooksProvider) invalidateArticleCache() {
 	p.articleMu.Lock()
 	p.articleByCode, p.articleIDs, p.articleLoaded = nil, nil, false
 	p.articleMu.Unlock()
+}
+
+// simplbooksRounding returns the value for the document's `rounding` field: the
+// cents needed to make SimplBooks' own total equal the total the caller billed,
+// and false when no adjustment should be sent.
+//
+// SimplBooks computes a document's VAT ONCE per rate, over the summed net of its
+// rows — verified live: two rows of 10.02 at 24% come to 20.04 × 24% = 4.8096 →
+// 4.81, where klubio rounds each row's VAT to 2.40 and sums to 4.80. Sum of
+// rounded is not rounded of sum, so the same lines total 24.84 in klubio and
+// 24.85 in SimplBooks, and the club is looking at two documents that disagree.
+//
+// Neither arithmetic is wrong, so this does not try to change either. `rounding`
+// is SimplBooks' own field for exactly this (an ümardus line): the books keep
+// their net and their VAT, and the total comes to what the customer was actually
+// asked to pay. Also verified live — it is accepted on create and is the only
+// one of the four candidate overrides that is (a per-row `vat`, a document
+// `vat`, and a document `total_sum` are all silently ignored).
+//
+// It is deliberately bounded. An adjustment beyond what rounding can explain —
+// half a cent per line, plus one for the document — is not rounding but a real
+// disagreement about what the invoice says, and papering over that with a
+// rounding line would hide it. Those return false and land in the read-back
+// check instead, which says so out loud.
+func simplbooksRounding(lines []CreateInvoiceLineInput, billed decimal.Decimal) (decimal.Decimal, bool) {
+	if billed.IsZero() || len(lines) == 0 {
+		return decimal.Zero, false
+	}
+	netByRate := map[string]decimal.Decimal{}
+	for _, l := range lines {
+		key := l.TaxRate.String()
+		netByRate[key] = netByRate[key].Add(l.Quantity.Mul(l.UnitPrice).Round(2))
+	}
+	predicted := decimal.Zero
+	for key, net := range netByRate {
+		rate := decimal.RequireFromString(key)
+		predicted = predicted.Add(net).Add(net.Mul(rate).Div(decimal.NewFromInt(100)).Round(2))
+	}
+	delta := billed.Sub(predicted)
+	if delta.IsZero() {
+		return decimal.Zero, false
+	}
+	limit := decimal.New(int64(len(lines))+1, -2) // (lines + 1) cents
+	if delta.Abs().GreaterThan(limit) {
+		return decimal.Zero, false
+	}
+	return delta, true
 }
 
 func simplbooksRow(line CreateInvoiceLineInput, articleID int) map[string]any {

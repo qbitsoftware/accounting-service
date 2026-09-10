@@ -24,15 +24,27 @@ type CreateInvoiceInput struct {
 	// not sit in the accounting UI marked "not sent". Zero = leave the provider's
 	// own default (unsent). Only SimplBooks acts on this today; other adapters
 	// ignore it.
-	SentDate            time.Time
-	InvoiceNo           string
-	RefNo               string
-	Currency            string
-	Lines               []CreateInvoiceLineInput
-	TotalAmount         decimal.Decimal // Total invoice amount (for validation)
-	Comment             string
-	FooterComment       string
-	AutoConfirm         bool // If true, sets OKFlag=1 on the invoice (confirms immediately)
+	SentDate    time.Time
+	InvoiceNo   string
+	RefNo       string
+	Currency    string
+	Lines       []CreateInvoiceLineInput
+	TotalAmount decimal.Decimal // Net subtotal, before tax (for validation)
+	// TotalWithVAT is the gross document total the caller has already billed —
+	// what the customer owes on the invoice they already hold. Zero = not
+	// stated, and every reconciliation that depends on it is then skipped.
+	//
+	// It exists because the caller and the provider compute a document's VAT
+	// from different bases, and neither is wrong: klubio rounds each LINE's VAT
+	// to a cent and sums, SimplBooks rounds once over the DOCUMENT's net. Sum of
+	// rounded is not rounded of sum, so the two can land a cent apart on
+	// identical lines. Stating what was billed lets an adapter reconcile the
+	// difference where the provider offers a way (SimplBooks: a rounding line),
+	// and report it where it does not.
+	TotalWithVAT  decimal.Decimal
+	Comment       string
+	FooterComment string
+	AutoConfirm   bool // If true, sets OKFlag=1 on the invoice (confirms immediately)
 	// PaymentTermCode references a code in the provider's payment-term register
 	// (Directo maksetingimus). Forwarded as the invoice's paymentterm attribute.
 	// When empty the provider falls back to the customer's default term — which
@@ -48,21 +60,27 @@ type LineDimension struct {
 }
 
 type CreateInvoiceLineInput struct {
-	Code           string
-	Description    string
-	Quantity       decimal.Decimal
-	UnitPrice      decimal.Decimal
+	Code        string
+	Description string
+	Quantity    decimal.Decimal
+	UnitPrice   decimal.Decimal
+	// TaxRate is the line's VAT rate as a PERCENT (24 for 24%). TaxID names that
+	// rate in the provider's own register and is what actually goes on the wire;
+	// this is the number itself, so an adapter can work out what the provider
+	// will compute without a round trip to resolve the code. Read only
+	// alongside CreateInvoiceInput.TotalWithVAT.
+	TaxRate        decimal.Decimal
 	TaxID          string
 	AccountCode    string
-	Type           *int   // Item type: 1=product, 2=package, 3=service (default: 3)
-	UOMName        string // Unit of measure (e.g., "pcs", "hrs", "kg")
-	ProjectCode    string // Merit project code (dimension) — flat field for v1 compat
-	CostCenterCode string // Merit cost center code (dimension) — flat field for v1 compat
+	Type           *int            // Item type: 1=product, 2=package, 3=service (default: 3)
+	UOMName        string          // Unit of measure (e.g., "pcs", "hrs", "kg")
+	ProjectCode    string          // Merit project code (dimension) — flat field for v1 compat
+	CostCenterCode string          // Merit cost center code (dimension) — flat field for v1 compat
 	Dimensions     []LineDimension // Merit v2 dimensions array
 }
 
 type CreateCustomerInput struct {
-	Name        string
+	Name string
 	// Code is the customer identifier in the provider's namespace. Optional —
 	// most providers (Merit) auto-assign their own ID. Required for Excellent
 	// Books when the EB instance has no number series configured for the
@@ -172,15 +190,21 @@ type CreateCreditNoteInput struct {
 	DueDate             time.Time
 	// SentDate mirrors CreateInvoiceInput.SentDate — the date the credit note was
 	// delivered to the customer. Zero = leave the provider's default (unsent).
-	SentDate            time.Time
-	InvoiceNo           string
-	RefNo               string
-	Currency            string
-	Lines               []CreateInvoiceLineInput
-	TotalAmount         decimal.Decimal // must be negative (net subtotal before tax)
-	Comment             string
-	FooterComment       string
-	OriginalInvoiceNo   string
+	SentDate    time.Time
+	InvoiceNo   string
+	RefNo       string
+	Currency    string
+	Lines       []CreateInvoiceLineInput
+	TotalAmount decimal.Decimal // must be negative (net subtotal before tax)
+	// TotalWithVAT mirrors CreateInvoiceInput's, and matters more here: a credit
+	// that does not exactly undo its original leaves a permanent cent on the
+	// customer's balance that nothing will ever clear. Verified against
+	// SimplBooks — an original of 35.00 was credited -35.01 before this was
+	// carried across. State it NEGATIVE, the sign the credit note itself is in.
+	TotalWithVAT      decimal.Decimal
+	Comment           string
+	FooterComment     string
+	OriginalInvoiceNo string
 	// PaymentTermCode references a code in the provider's payment-term
 	// register (Excellent Books PDVc; e.g. "K" for cash). When set, the
 	// adapter forwards it as the invoice's PayDeal field. When empty, the
