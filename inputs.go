@@ -16,8 +16,15 @@ type CreateInvoiceInput struct {
 	CustomerCountryCode string
 	CustomerCounty      string // Directo tax region / Asumaa for the inline customer (e.g. "Harjumaa")
 	CustomerType        string // Directo customer_type: "0"=company, "1"=private, "2"=government
-	DocDate             time.Time
-	DueDate             time.Time
+	// VATZone is Directo's KM maa (sql field `maa`): "0" local, "1" EU,
+	// "2" export. It is a DECLARATION classifier, not a tax calculation —
+	// which VAT return the document lands in (zone 1 feeds the VD / EC sales
+	// list). The tax itself still comes from each line's TaxID. Empty = not
+	// sent, and Directo falls back to the customer card's zone, then to local.
+	// Directo-only; every other adapter ignores it.
+	VATZone string
+	DocDate time.Time
+	DueDate time.Time
 	// SentDate is the date the invoice was actually delivered to the customer by
 	// the calling system. Providers that track a delivery state on the document
 	// stamp it at creation, so an invoice that already went out from klubio does
@@ -186,8 +193,12 @@ type CreateCreditNoteInput struct {
 	CustomerAddress     string
 	CustomerCountryCode string
 	CustomerCounty      string // Directo tax region / Asumaa for the inline customer
-	DocDate             time.Time
-	DueDate             time.Time
+	// VATZone mirrors CreateInvoiceInput.VATZone. Send the same zone the
+	// credited invoice carried, or the credit note lands in a different VAT
+	// declaration than the document it reverses.
+	VATZone string
+	DocDate time.Time
+	DueDate time.Time
 	// SentDate mirrors CreateInvoiceInput.SentDate — the date the credit note was
 	// delivered to the customer. Zero = leave the provider's default (unsent).
 	SentDate    time.Time

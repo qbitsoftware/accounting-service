@@ -84,6 +84,7 @@ func (p *directoProvider) CreateInvoice(ctx context.Context, input CreateInvoice
 		CustomerType:  input.CustomerType,
 		Country:       input.CustomerCountryCode,
 		County:        input.CustomerCounty,
+		VATZone:       input.VATZone,
 		Rows:          directo.NewInvoiceRows(rows),
 	}
 
@@ -451,12 +452,13 @@ func (p *directoProvider) CreateCreditNote(ctx context.Context, input CreateCred
 		// Link the credit note to the invoice it reduces (UI "Kred. arve") so it
 		// offsets the original instead of floating as a standalone negative.
 		CreditedInvoice: input.OriginalInvoiceNo,
-		CustomerRegNo: input.CustomerRegNo,
-		Email:         input.CustomerEmail,
-		Address1:      input.CustomerAddress,
-		Country:       input.CustomerCountryCode,
-		County:        input.CustomerCounty,
-		Rows:          directo.NewInvoiceRows(rows),
+		CustomerRegNo:   input.CustomerRegNo,
+		Email:           input.CustomerEmail,
+		Address1:        input.CustomerAddress,
+		Country:         input.CustomerCountryCode,
+		County:          input.CustomerCounty,
+		VATZone:         input.VATZone,
+		Rows:            directo.NewInvoiceRows(rows),
 	}
 
 	_, err := p.client.CreateInvoice(ctx, inv, nil)
