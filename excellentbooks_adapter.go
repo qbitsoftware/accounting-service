@@ -344,18 +344,11 @@ func (p *excellentProvider) ListPayments(ctx context.Context, input ListPayments
 	payments := make([]Payment, len(receipts))
 	for i, r := range receipts {
 		amount := decimal.Zero
-		var links []PaymentInvoiceLink
 		for _, row := range r.Rows {
 			rowAmt, _ := decimal.NewFromString(row.RecVal)
 			amount = amount.Add(rowAmt)
-			if row.InvoiceNr != "" {
-				links = append(links, PaymentInvoiceLink{
-					InvoiceID: row.InvoiceNr,
-					InvoiceNo: row.InvoiceNr,
-					Amount:    rowAmt,
-				})
-			}
 		}
+		links := excellentReceiptInvoiceLinks(r.Rows)
 		payments[i] = Payment{
 			ID:              r.SerNr,
 			DocumentNo:      r.SerNr,
@@ -885,4 +878,56 @@ func (p *excellentProvider) wrapError(op string, err error) error {
 	}
 
 	return &ProviderError{Provider: "excellentbooks", Op: op, Err: err}
+}
+
+// excellentReceiptInvoiceLinks turns a receipt's invoice rows into links, and
+// works out how much of each came from a prepayment rather than as money.
+//
+// EB records a prepayment movement as rows of opposite sign inside ONE receipt:
+// applying an advance is +X on the invoice row and -X on the CUPNr row, freeing
+// paid money is -X on the invoice row and +X on the CUPNr row. So an invoice
+// row's prepayment part is what the receipt's opposite-signed CUPNr rows can
+// cover. A CUPNr row of the SAME sign is money that arrived beside the invoice
+// payment and was parked as an advance — cash on both rows, so it covers
+// nothing here. Cover is handed out to invoice rows in row order, which only
+// matters for a hand-made receipt drawing one advance onto several invoices.
+func excellentReceiptInvoiceLinks(rows []excellentbooks.ReceiptRow) []PaymentInvoiceLink {
+	drawn := decimal.Zero // advance drawn onto invoices (CUPNr rows < 0), as a positive amount
+	freed := decimal.Zero // paid money freed into advances (CUPNr rows > 0)
+	for _, row := range rows {
+		if row.CUPNr == "" || row.InvoiceNr != "" {
+			continue
+		}
+		amt, _ := decimal.NewFromString(row.RecVal)
+		if amt.IsNegative() {
+			drawn = drawn.Add(amt.Neg())
+		} else {
+			freed = freed.Add(amt)
+		}
+	}
+
+	var links []PaymentInvoiceLink
+	for _, row := range rows {
+		if row.InvoiceNr == "" {
+			continue
+		}
+		amt, _ := decimal.NewFromString(row.RecVal)
+		fromPrepayment := decimal.Zero
+		switch {
+		case amt.IsPositive() && drawn.IsPositive():
+			fromPrepayment = decimal.Min(amt, drawn)
+			drawn = drawn.Sub(fromPrepayment)
+		case amt.IsNegative() && freed.IsPositive():
+			part := decimal.Min(amt.Neg(), freed)
+			freed = freed.Sub(part)
+			fromPrepayment = part.Neg()
+		}
+		links = append(links, PaymentInvoiceLink{
+			InvoiceID:      row.InvoiceNr,
+			InvoiceNo:      row.InvoiceNr,
+			Amount:         amt,
+			FromPrepayment: fromPrepayment,
+		})
+	}
+	return links
 }

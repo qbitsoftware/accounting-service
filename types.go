@@ -113,6 +113,20 @@ type PaymentInvoiceLink struct {
 	InvoiceID string
 	InvoiceNo string
 	Amount    decimal.Decimal
+
+	// FromPrepayment is the part of Amount that was moved from a customer
+	// prepayment (advance) rather than received as money — a prepayment drawn
+	// onto the invoice. Same sign as Amount: negative on a row that frees paid
+	// money off the invoice back into a prepayment. Zero when the provider does
+	// not distinguish the two, so a caller that needs the split must treat a
+	// zero as "unknown", not as "all cash", unless it knows the provider sets it.
+	//
+	// Set by Excellent Books, where a prepayment application is one receipt with
+	// an invoice row and an opposite-signed CUPNr row. Without it a receipt pull
+	// cannot tell a credit application from a cash payment on the same invoice,
+	// and a caller comparing its own ledger against the provider's attributes a
+	// missing cash receipt to a credit application that is already there.
+	FromPrepayment decimal.Decimal
 }
 
 type Tax struct {
