@@ -58,6 +58,11 @@ func (p *excellentProvider) CreateInvoice(ctx context.Context, input CreateInvoi
 	if input.RefNo != "" {
 		fields["set_field.RefStr"] = input.RefNo
 	}
+	// EB numbers the document itself (SerNr); the caller's own number goes in
+	// "Ametlik seerianumber" so an accountant can find the invoice by it.
+	if input.OfficialNo != "" {
+		fields["set_field.OfficialSerNr"] = input.OfficialNo
+	}
 
 	for i, line := range input.Lines {
 		prefix := fmt.Sprintf("set_row_field.%d", i)
@@ -473,6 +478,9 @@ func (p *excellentProvider) CreateCreditNote(ctx context.Context, input CreateCr
 	fields["set_field.PayDeal"] = payDeal
 	if input.Currency != "" {
 		fields["set_field.CurncyCode"] = input.Currency
+	}
+	if input.OfficialNo != "" {
+		fields["set_field.OfficialSerNr"] = input.OfficialNo
 	}
 	if input.OriginalInvoiceNo != "" {
 		fields["set_field.CredInv"] = input.OriginalInvoiceNo

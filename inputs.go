@@ -31,8 +31,13 @@ type CreateInvoiceInput struct {
 	// not sit in the accounting UI marked "not sent". Zero = leave the provider's
 	// own default (unsent). Only SimplBooks acts on this today; other adapters
 	// ignore it.
-	SentDate    time.Time
-	InvoiceNo   string
+	SentDate  time.Time
+	InvoiceNo string
+	// OfficialNo is the caller's own document number, written to the
+	// provider's secondary number field (Excellent Books "Ametlik
+	// seerianumber", OfficialSerNr) beside the provider's own SerNr. Empty =
+	// not sent. Excellent Books only; other adapters ignore it.
+	OfficialNo  string
 	RefNo       string
 	Currency    string
 	Lines       []CreateInvoiceLineInput
@@ -201,8 +206,13 @@ type CreateCreditNoteInput struct {
 	DueDate time.Time
 	// SentDate mirrors CreateInvoiceInput.SentDate — the date the credit note was
 	// delivered to the customer. Zero = leave the provider's default (unsent).
-	SentDate    time.Time
-	InvoiceNo   string
+	SentDate  time.Time
+	InvoiceNo string
+	// OfficialNo is the caller's own document number, written to the
+	// provider's secondary number field (Excellent Books "Ametlik
+	// seerianumber", OfficialSerNr) beside the provider's own SerNr. Empty =
+	// not sent. Excellent Books only; other adapters ignore it.
+	OfficialNo  string
 	RefNo       string
 	Currency    string
 	Lines       []CreateInvoiceLineInput
