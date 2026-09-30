@@ -89,6 +89,11 @@ type CreateInvoiceLineInput struct {
 	ProjectCode    string          // Merit project code (dimension) — flat field for v1 compat
 	CostCenterCode string          // Merit cost center code (dimension) — flat field for v1 compat
 	Dimensions     []LineDimension // Merit v2 dimensions array
+	// DepartmentCode is Merit's osakond — a register of its own (v1/getdepartments),
+	// not one of the v2 dimensions, so it travels as a flat code only. Empty = not
+	// sent, which is every caller before the field existed. Merit-only; every
+	// other adapter ignores it.
+	DepartmentCode string
 }
 
 type CreateCustomerInput struct {

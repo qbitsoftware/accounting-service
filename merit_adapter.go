@@ -58,6 +58,7 @@ func buildRowsAndTaxes(lines []CreateInvoiceLineInput) ([]merit.InvoiceRow, []me
 			GLAccountCode:  line.AccountCode,
 			ProjectCode:    line.ProjectCode,
 			CostCenterCode: line.CostCenterCode,
+			DepartmentCode: line.DepartmentCode,
 		}
 
 		// Populate v2 Dimensions array for proper dimension assignment
@@ -75,6 +76,26 @@ func buildRowsAndTaxes(lines []CreateInvoiceLineInput) ([]merit.InvoiceRow, []me
 	return rows, []merit.TaxAmountEntry{}
 }
 
+// documentDepartment is the department a whole document belongs to: the one
+// code every row carries. Merit files a sales invoice under its HEADER
+// department, so rows alone leave the document outside every department in the
+// invoice list. Rows that disagree (or a row with none) leave the header empty
+// rather than picking one — the rows still carry their own.
+func documentDepartment(lines []CreateInvoiceLineInput) string {
+	code := ""
+	for i, line := range lines {
+		if line.DepartmentCode == "" {
+			return ""
+		}
+		if i == 0 {
+			code = line.DepartmentCode
+		} else if line.DepartmentCode != code {
+			return ""
+		}
+	}
+	return code
+}
+
 func (p *meritProvider) CreateInvoice(ctx context.Context, input CreateInvoiceInput) (*Invoice, error) {
 	rows, taxes := buildRowsAndTaxes(input.Lines)
 
@@ -87,17 +108,18 @@ func (p *meritProvider) CreateInvoice(ctx context.Context, input CreateInvoiceIn
 			Address:     input.CustomerAddress,
 			CountryCode: input.CustomerCountryCode,
 		},
-		AccountingDoc: merit.DocInvoice,
-		DocDate:       formatDate(input.DocDate),
-		DueDate:       formatDate(input.DueDate),
-		InvoiceNo:     input.InvoiceNo,
-		RefNo:         input.RefNo,
-		CurrencyCode:  input.Currency,
-		InvoiceRow:    rows,
-		TaxAmount:     taxes,
-		TotalAmount:   input.TotalAmount,
-		Hcomment:      input.Comment,
-		Fcomment:      input.FooterComment,
+		AccountingDoc:  merit.DocInvoice,
+		DepartmentCode: documentDepartment(input.Lines),
+		DocDate:        formatDate(input.DocDate),
+		DueDate:        formatDate(input.DueDate),
+		InvoiceNo:      input.InvoiceNo,
+		RefNo:          input.RefNo,
+		CurrencyCode:   input.Currency,
+		InvoiceRow:     rows,
+		TaxAmount:      taxes,
+		TotalAmount:    input.TotalAmount,
+		Hcomment:       input.Comment,
+		Fcomment:       input.FooterComment,
 	}
 
 	resp, err := p.client.CreateInvoice(ctx, req)
@@ -408,17 +430,18 @@ func (p *meritProvider) CreateCreditNote(ctx context.Context, input CreateCredit
 			Address:     input.CustomerAddress,
 			CountryCode: input.CustomerCountryCode,
 		},
-		AccountingDoc: merit.DocCredit,
-		DocDate:       formatDate(input.DocDate),
-		DueDate:       formatDate(input.DueDate),
-		InvoiceNo:     input.InvoiceNo,
-		RefNo:         input.RefNo,
-		CurrencyCode:  input.Currency,
-		InvoiceRow:    rows,
-		TaxAmount:     taxes,
-		TotalAmount:   input.TotalAmount,
-		Hcomment:      input.Comment,
-		Fcomment:      input.FooterComment,
+		AccountingDoc:  merit.DocCredit,
+		DepartmentCode: documentDepartment(input.Lines),
+		DocDate:        formatDate(input.DocDate),
+		DueDate:        formatDate(input.DueDate),
+		InvoiceNo:      input.InvoiceNo,
+		RefNo:          input.RefNo,
+		CurrencyCode:   input.Currency,
+		InvoiceRow:     rows,
+		TaxAmount:      taxes,
+		TotalAmount:    input.TotalAmount,
+		Hcomment:       input.Comment,
+		Fcomment:       input.FooterComment,
 	}
 
 	resp, err := p.client.CreateInvoice(ctx, req)
