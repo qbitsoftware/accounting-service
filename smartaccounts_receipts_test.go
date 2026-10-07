@@ -594,3 +594,22 @@ func TestSAReceiptCreatedBy(t *testing.T) {
 		t.Errorf("an odd createdBy must neither fail the row nor read as the API: %+v", r)
 	}
 }
+
+// SmartAccounts' 503 "billing error" is still a rate limit for every caller
+// that pauses on one, with the same message as before — and, opt-in, tells
+// itself apart from a spent request budget.
+func TestSABillingErrorIsBillingInactive(t *testing.T) {
+	p, _ := newSAFake(t, func(int, saWire) (int, string) {
+		return 503, `{"errors":[{"code":"GENERAL","message":"Service unavailable (billing error)"}]}`
+	})
+	_, err := p.ListPaymentChanges(saCtx, PaymentChangesInput{Since: saDay(2026, 10, 1)})
+	if !IsRateLimit(err) || !IsBillingInactive(err) {
+		t.Fatalf("billing error = %v (rate limit %v, billing %v), want both", err, IsRateLimit(err), IsBillingInactive(err))
+	}
+	if !strings.Contains(err.Error(), `rate limit exceeded: SmartAccounts refused the request with "billing error" — the company's SmartAccounts subscription or API service is not active`) {
+		t.Errorf("message changed: %v", err)
+	}
+	if IsBillingInactive(ErrRateLimit) || IsBillingInactive(&ProviderError{Err: ErrRateLimit}) {
+		t.Error("a plain rate limit read as billing inactive")
+	}
+}

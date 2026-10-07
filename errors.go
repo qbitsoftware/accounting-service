@@ -41,6 +41,25 @@ func IsRateLimit(err error) bool {
 	return errors.Is(err, ErrRateLimit)
 }
 
+// ErrBillingInactive is SmartAccounts' 503 "billing error": the company's
+// subscription or API service is not active. It is also ErrRateLimit — every
+// caller that pauses or keeps attempts on a "come back later" goes on doing so
+// — and this sentinel lets one that names the reason tell it apart from a
+// spent request budget.
+var ErrBillingInactive = errors.New("provider subscription or API service not active")
+
+// IsBillingInactive reports whether err is ErrBillingInactive.
+func IsBillingInactive(err error) bool {
+	return errors.Is(err, ErrBillingInactive)
+}
+
+// billingInactiveError is both ErrRateLimit and ErrBillingInactive, with the
+// message the billing error has always carried.
+type billingInactiveError struct{ msg string }
+
+func (e *billingInactiveError) Error() string   { return e.msg }
+func (e *billingInactiveError) Unwrap() []error { return []error{ErrRateLimit, ErrBillingInactive} }
+
 // PartialResultError is implemented by errors that accompany a usable partial
 // result. It exists because some providers cap how much history one call may
 // cover (Merit: 3 months per list call), so a wide range is fetched as several

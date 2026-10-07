@@ -1111,7 +1111,7 @@ func (p *smartProvider) wrapError(op string, err error) error {
 				// attempts or pauses a club on ErrRateLimit, but with the
 				// real reason, so nobody hunts for a request budget that
 				// was never spent.
-				sentinel = fmt.Errorf("%w: SmartAccounts refused the request with \"billing error\" — the company's SmartAccounts subscription or API service is not active", ErrRateLimit)
+				sentinel = &billingInactiveError{msg: ErrRateLimit.Error() + ": SmartAccounts refused the request with \"billing error\" — the company's SmartAccounts subscription or API service is not active"}
 				break
 			}
 			sentinel = fmt.Errorf("%w (SmartAccounts allows 60 requests/minute and 1000 per 24 hours per company; a spent 24h budget clears only as the oldest requests age out)", ErrRateLimit)
