@@ -164,6 +164,13 @@ func TestSAListPaymentsSinceQueryGolden(t *testing.T) {
 // shape the pull meets: an advance park, an advance applied to an invoice, the
 // credit-note netting klubio posts, a cash receipt (orderNumber present, number
 // as a bare JSON number) and a vendor payment.
+//
+// TODO(before tagging v0.15.0): these pages are SYNTHETIC — written from the
+// API spec, not recorded. The `deleted` element type, the orderNumber shape, the
+// advance park / apply / netting shapes and the cash payload are all unproven.
+// Replace or extend them with raw payloads recorded from the SmartAccounts
+// sandbox (design §2.5; checklist Gate A items 3, 5, 8, 9 — S-a/b/c/f) and
+// re-run the decode goldens. Until then the branch stays untagged.
 const saFeedPage1 = `{"payments":[` +
 	`{"id":"adv-1","date":"01.09.2026","number":"5","document":"KLB-PP-3","partnerType":"CLIENT","clientId":"cli-9",` +
 	`"client":{"id":"cli-9","name":"Mari Maasikas"},"accountType":"BANK","accountName":"LHV klubio","currency":"EUR","amount":50,` +

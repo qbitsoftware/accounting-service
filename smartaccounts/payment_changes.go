@@ -32,6 +32,17 @@ var (
 	// ErrTooManyPages means a capped read still had more pages at its cap. The
 	// items read so far are not the whole answer.
 	ErrTooManyPages = errors.New("smartaccounts: read exceeded its page cap")
+	// ErrIDFilterIgnored means a by-id payments read answered something other
+	// than that one payment: another payment, or more than one page. The id
+	// filter was then not applied, and the answer says nothing about whether the
+	// payment exists — least of all that it was deleted.
+	ErrIDFilterIgnored = errors.New("smartaccounts: id filter ignored — the by-id read answered other payments")
+	// ErrUnreadablePayment means a per-customer read met a payment whose core
+	// fields could not be decoded. Whose payment it is cannot be told, so the
+	// read is neither provably this customer's nor complete. Kept apart from
+	// ErrPartnerFilterIgnored so a decode problem is not reported as SmartAccounts
+	// ignoring partnerId.
+	ErrUnreadablePayment = errors.New("smartaccounts: payment could not be decoded")
 )
 
 // preciseDateFormat is SmartAccounts' second-precision date filter format.
@@ -50,6 +61,15 @@ func tallinnTime(t time.Time) time.Time {
 	return t.In(time.FixedZone("EE", offset))
 }
 
+// TallinnDate formats t as the Tallinn calendar date ("dd.MM.yyyy"), the date
+// SmartAccounts files a document under; "" for a zero t.
+func TallinnDate(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return tallinnTime(t).Format("02.01.2006")
+}
+
 // PaymentChangeItem is one payment from a receipt-level read. It embeds the
 // v0.14.5 PaymentItem (whose fields and tags are unchanged) and adds the fields
 // only the new reads look at.
@@ -65,6 +85,11 @@ type PaymentChangeItem struct {
 	// this payment), kept raw so a malformed one cannot fail the row's decode.
 	PrepaymentRaw json.RawMessage `json:"prepayment"`
 
+	// ExtrasRaw is the `extras` array — extra GL rows (price × quantity on an
+	// account) an accountant can add to a payment. Kept raw: only its presence
+	// matters here, because deleting a payment deletes those postings with it.
+	ExtrasRaw json.RawMessage `json:"extras"`
+
 	// Prepayment is PrepaymentRaw parsed into the existing request-side shape;
 	// nil when the payment parked no advance or the object could not be read.
 	Prepayment *PaymentPrepayment `json:"-"`
@@ -75,6 +100,21 @@ type PaymentChangeItem struct {
 	// Unreadable is true when even the payment's core fields could not be
 	// decoded: only ID (when readable) and DecodeError are set.
 	Unreadable bool `json:"-"`
+}
+
+// HasExtras reports whether the payment carries extra rows. Anything but an
+// absent, null or empty `extras` counts — an unreadable one included, since
+// "cannot tell" must never read as "none".
+func (p PaymentChangeItem) HasExtras() bool {
+	t := bytes.TrimSpace(p.ExtrasRaw)
+	if len(t) == 0 || string(t) == "null" {
+		return false
+	}
+	var elems []json.RawMessage
+	if err := json.Unmarshal(t, &elems); err != nil {
+		return true
+	}
+	return len(elems) > 0
 }
 
 // OrderNumberString returns the cash-desk order number as text, "" when absent.
@@ -120,27 +160,37 @@ func (c *Client) ListPaymentChanges(ctx context.Context, params ListPaymentsPara
 }
 
 // GetPayment reads one payment by id, rows and comment included. An empty
-// answer is *APIError{404}. An answer holding any other payment means SA ignored
-// the id filter, which is an error and never "not found" — absence is evidence
-// of deletion only when the question was really asked.
+// answer is *APIError{404}. An answer holding any other payment, or running past
+// one page, means SA ignored the id filter: ErrIDFilterIgnored, never "not
+// found" — absence is evidence of deletion only when the question was really
+// asked.
+//
+// dateFrom=01.01.2000 goes with the id, as in FindInvoiceByNumber: SA refuses
+// an unbounded clientinvoices:get unless id is given, and nobody has checked
+// whether payments:get quietly applies a default date window when dateFrom is
+// missing. Under such a window an old receipt that still exists would come back
+// empty and read as deleted. The bound costs nothing if SA honours id.
 //
 // SANDBOX (checklist item 7): what SA answers for a deleted id (empty, 404, or
-// an error with a message). Only the first two read as not-found here.
+// an error with a message), and the positive control — an existing receipt over
+// a year old, with and without dateFrom, must come back. Until both are
+// recorded a caller must not act on not-found alone (see ReceiptGetter).
 func (c *Client) GetPayment(ctx context.Context, id string) (*PaymentChangeItem, error) {
 	if id == "" {
 		return nil, fmt.Errorf("smartaccounts: GetPayment: empty id")
 	}
-	items, _, _, err := c.readPaymentPages(ctx, ListPaymentsParams{ID: id, FetchRows: true, FetchComments: true}.values(), 1)
+	params := ListPaymentsParams{DateFrom: "01.01.2000", ID: id, FetchRows: true, FetchComments: true}
+	items, _, _, err := c.readPaymentPages(ctx, params.values(), 1)
 	if err != nil {
 		if errors.Is(err, ErrTooManyPages) {
-			return nil, fmt.Errorf("smartaccounts: GetPayment %s: id filter ignored (more than one page): %w", id, err)
+			return nil, fmt.Errorf("%w: GetPayment %s answered more than one page: %w", ErrIDFilterIgnored, id, err)
 		}
 		return nil, err
 	}
 	var hit *PaymentChangeItem
 	for i := range items {
 		if items[i].ID != id {
-			return nil, fmt.Errorf("smartaccounts: GetPayment %s: id filter ignored (answer holds payment %s)", id, items[i].ID)
+			return nil, fmt.Errorf("%w: GetPayment %s answered payment %s", ErrIDFilterIgnored, id, items[i].ID)
 		}
 		hit = &items[i]
 	}
@@ -152,11 +202,13 @@ func (c *Client) GetPayment(ctx context.Context, id string) (*PaymentChangeItem,
 
 // ListCustomerPayments reads one client's payments (partnerType=CLIENT,
 // partnerId) dated from..to, rows and comments included, reading at most
-// maxPages pages (0 ⇒ 5).
+// maxPages pages (0 ⇒ 5). from/to are sent as Tallinn calendar dates, the
+// dates SA keeps; a zero from is 01.01.2000 and a zero to sends no dateTo.
 //
 // It refuses rather than guesses: a row belonging to any other partner aborts
 // with ErrPartnerFilterIgnored (SANDBOX checklist item 4 — whether SA honours
-// partnerId at all), and a read still unfinished at maxPages aborts with
+// partnerId at all), a row whose owner cannot be read aborts with
+// ErrUnreadablePayment, and a read still unfinished at maxPages aborts with
 // ErrTooManyPages. The cap keeps a single admin click from spending a shared
 // company's daily budget.
 func (c *Client) ListCustomerPayments(ctx context.Context, partnerID string, from, to time.Time, maxPages int) ([]PaymentChangeItem, error) {
@@ -168,7 +220,7 @@ func (c *Client) ListCustomerPayments(ctx context.Context, partnerID string, fro
 	}
 	dateFrom := "01.01.2000"
 	if !from.IsZero() {
-		dateFrom = from.Format("02.01.2006")
+		dateFrom = TallinnDate(from)
 	}
 	params := ListPaymentsParams{
 		DateFrom:      dateFrom,
@@ -178,13 +230,16 @@ func (c *Client) ListCustomerPayments(ctx context.Context, partnerID string, fro
 		FetchComments: true,
 	}
 	if !to.IsZero() {
-		params.DateTo = to.Format("02.01.2006")
+		params.DateTo = TallinnDate(to)
 	}
 	items, _, _, err := c.readPaymentPages(ctx, params.values(), maxPages)
 	if err != nil {
 		return nil, err
 	}
 	for _, it := range items {
+		if it.Unreadable {
+			return nil, fmt.Errorf("%w (payment %q in %s's receipts: %s)", ErrUnreadablePayment, it.ID, partnerID, it.DecodeError)
+		}
 		if !belongsToClient(it, partnerID) {
 			return nil, fmt.Errorf("%w (asked for %s, got payment %s)", ErrPartnerFilterIgnored, partnerID, it.ID)
 		}
@@ -352,6 +407,9 @@ func decodePaymentChange(raw json.RawMessage) PaymentChangeItem {
 		} else {
 			it.Prepayment = &pp
 		}
+	}
+	if t := bytes.TrimSpace(it.ExtrasRaw); len(t) > 0 && string(t) != "null" && t[0] != '[' {
+		it.DecodeError = joinDecodeErr(it.DecodeError, "extras: not an array")
 	}
 	if _, ok := rawScalar(it.OrderNumber); !ok {
 		it.DecodeError = joinDecodeErr(it.DecodeError, "orderNumber: not a string or number")

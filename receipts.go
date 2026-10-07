@@ -33,6 +33,13 @@ type InvoiceReceiptLister interface {
 // ReceiptGetter reads one receipt by id. A receipt that is gone answers an
 // error for which IsNotFound is true — and only then may the caller conclude
 // it is gone.
+//
+// For SmartAccounts that conclusion is not yet proven safe on its own: what
+// payments:get answers for a deleted id, and whether an existing receipt over a
+// year old always comes back by id, are open sandbox questions (design §7 item
+// 7). Until both are recorded a caller must pair a not-found with a second
+// signal — the id in the change feed's Deleted — before treating a receipt as
+// deleted.
 type ReceiptGetter interface {
 	GetReceipt(ctx context.Context, id string) (*Receipt, error)
 }
@@ -123,6 +130,10 @@ type Receipt struct {
 	// AdvanceSourceIDs are the advances this receipt DRAWS from — the ids on its
 	// PREPAYMENT_PAYMENT rows, which are the source advances' receipt ids.
 	AdvanceSourceIDs []string
+	// HasExtras is true when the receipt carries extra GL rows (SmartAccounts'
+	// `extras`: an accountant's fee or rounding posting on an account). They are
+	// not allocations, but deleting the receipt deletes them too.
+	HasExtras bool
 	// DecodeError is non-empty when part of the provider's record could not be
 	// read. Such a receipt must never be treated as money; it is returned so the
 	// caller can report it rather than lose it.
@@ -142,11 +153,13 @@ func (r Receipt) AmountOn(invoiceID string) decimal.Decimal {
 
 // TouchesOnly reports whether deleting this receipt would change nothing but
 // invoiceID: exactly one row, a CLIENT_INVOICE row on that invoice carrying the
-// whole receipt, no advance parked, nothing unreadable. A provider deletes a
-// receipt with all its rows, so anything else would undo money on some other
-// document too.
+// whole receipt, no advance parked, no extras, nothing unreadable. A provider
+// deletes a receipt with all its rows, so anything else would undo money on
+// some other document — or an accountant's own posting — too. Extras are checked
+// on their own, not left to the amount comparison: extras that sum to zero, or
+// an amount that excludes them, would pass it.
 func (r Receipt) TouchesOnly(invoiceID string) bool {
-	if r.DecodeError != "" || len(r.Rows) != 1 || !r.AdvanceAmount.IsZero() || len(r.AdvanceSourceIDs) > 0 {
+	if r.DecodeError != "" || r.HasExtras || len(r.Rows) != 1 || !r.AdvanceAmount.IsZero() || len(r.AdvanceSourceIDs) > 0 {
 		return false
 	}
 	row := r.Rows[0]

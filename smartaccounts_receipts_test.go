@@ -255,6 +255,26 @@ func TestSAListPaymentChanges(t *testing.T) {
 	assertSAWire(t, f2, saTestKey(t),
 		`GET purchasesales/payments:get?apikey=KEY&dateFrom=09.07.2026&dateTo=05.01.2027&dateType=modifydate&fetchComments=true&fetchRows=true&pageNumber=1&partnerType=CLIENT`,
 	)
+	// Late evening UTC is already tomorrow in Tallinn. A cursor read sends
+	// Tallinn's date as dateTo so the newest changes stay inside the window; the
+	// date-only read keeps ListPaymentsSince's formatting byte for byte.
+	lateUTC := time.Date(2026, 9, 1, 22, 30, 0, 0, time.UTC)
+	p3, f3 := newSAFake(t, func(int, saWire) (int, string) { return 200, `{"payments":[],"deleted":[],"hasMoreEntries":false}` })
+	if _, err := p3.ListPaymentChanges(saCtx, PaymentChangesInput{Since: since, Until: lateUTC, Precise: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p3.ListPaymentChanges(saCtx, PaymentChangesInput{Since: saDay(2026, 7, 9), Until: lateUTC}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p3.ListPaymentsSince(saCtx, saDay(2026, 7, 9), lateUTC); err != nil {
+		t.Fatal(err)
+	}
+	assertSAWire(t, f3, saTestKey(t),
+		`GET purchasesales/payments:get?apikey=KEY&dateFrom=01.09.2026_09%3A00%3A05&dateTo=02.09.2026&dateType=modifydate&fetchComments=true&fetchRows=true&pageNumber=1`,
+		`GET purchasesales/payments:get?apikey=KEY&dateFrom=09.07.2026&dateTo=01.09.2026&dateType=modifydate&fetchComments=true&fetchRows=true&pageNumber=1`,
+		`GET purchasesales/payments:get?apikey=KEY&dateFrom=09.07.2026&dateTo=01.09.2026&dateType=modifydate&fetchRows=true&pageNumber=1`,
+	)
+
 	if _, err := p2.ListPaymentChanges(saCtx, PaymentChangesInput{}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("a zero Since must be refused, got %v", err)
 	}
@@ -290,16 +310,31 @@ func TestSAGetReceipt(t *testing.T) {
 		t.Errorf("receipt = %+v", r)
 	}
 	assertSAWire(t, f, saTestKey(t),
-		`GET purchasesales/payments:get?apikey=KEY&fetchComments=true&fetchRows=true&id=pay-77&pageNumber=1`,
+		`GET purchasesales/payments:get?apikey=KEY&dateFrom=01.01.2000&fetchComments=true&fetchRows=true&id=pay-77&pageNumber=1`,
 	)
 
 	gone, _ := newSAFake(t, func(int, saWire) (int, string) { return 200, `{"payments":[],"hasMoreEntries":false}` })
 	if _, err := gone.GetReceipt(saCtx, "pay-77"); !IsNotFound(err) {
 		t.Fatalf("an empty by-id answer is not-found, got %v", err)
 	}
-	wrong, _ := newSAFake(t, func(int, saWire) (int, string) { return 200, `{"payments":[{"id":"x","amount":1}],"hasMoreEntries":false}` })
-	if _, err := wrong.GetReceipt(saCtx, "pay-77"); err == nil || IsNotFound(err) {
-		t.Fatalf("another payment in the answer must never read as not-found, got %v", err)
+	wrong, _ := newSAFake(t, func(int, saWire) (int, string) {
+		return 200, `{"payments":[{"id":"x","amount":1}],"hasMoreEntries":false}`
+	})
+	if _, err := wrong.GetReceipt(saCtx, "pay-77"); !errors.Is(err, ErrIDFilterIgnored) || IsNotFound(err) {
+		t.Fatalf("another payment in the answer must be ErrIDFilterIgnored, never not-found, got %v", err)
+	}
+
+	extras, _ := newSAFake(t, func(int, saWire) (int, string) {
+		return 200, `{"payments":[{"id":"pay-78","partnerType":"CLIENT","client":{"id":"cli-9"},"amount":25,` +
+			`"rows":[{"amount":25,"type":"CLIENT_INVOICE","id":"inv-1"}],` +
+			`"extras":[{"price":2,"quantity":1,"amount":2,"account":"8610"},{"price":-2,"quantity":1,"amount":-2,"account":"8610"}]}],"hasMoreEntries":false}`
+	})
+	r, err = extras.GetReceipt(saCtx, "pay-78")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.HasExtras || r.TouchesOnly("inv-1") {
+		t.Errorf("extras summing to zero must still keep the receipt from reading as deletable: %+v", r)
 	}
 }
 
@@ -330,6 +365,12 @@ func TestSAListInvoiceReceipts(t *testing.T) {
 	})
 	if _, err := foreign.ListInvoiceReceipts(saCtx, ListInvoiceReceiptsInput{CustomerID: "cli-9"}); !errors.Is(err, ErrPartnerFilterIgnored) {
 		t.Fatalf("want ErrPartnerFilterIgnored, got %v", err)
+	}
+	unreadable, _ := newSAFake(t, func(int, saWire) (int, string) {
+		return 200, `{"payments":[{"id":"r1","amount":{"x":1}}],"hasMoreEntries":false}`
+	})
+	if _, err := unreadable.ListInvoiceReceipts(saCtx, ListInvoiceReceiptsInput{CustomerID: "cli-9"}); !errors.Is(err, ErrUnreadablePayment) || errors.Is(err, ErrPartnerFilterIgnored) {
+		t.Fatalf("want ErrUnreadablePayment, got %v", err)
 	}
 	paged, pf := newSAFake(t, func(int, saWire) (int, string) {
 		return 200, `{"payments":[{"id":"r1","partnerType":"CLIENT","client":{"id":"cli-9"},"amount":10}],"hasMoreEntries":true}`
@@ -374,6 +415,9 @@ func TestReceiptTouchesOnly(t *testing.T) {
 		{"advance draw", Receipt{Amount: d("0"), Rows: []ReceiptRow{row("PREPAYMENT_PAYMENT", "inv-1", "10")}}, false},
 		{"unreadable", Receipt{Amount: d("10"), DecodeError: "x", Rows: []ReceiptRow{row("CLIENT_INVOICE", "inv-1", "10")}}, false},
 		{"no rows", Receipt{Amount: d("10")}, false},
+		// Extras summing to zero leave the amount equal to the row; only the flag
+		// stops the delete from taking the accountant's postings with it.
+		{"extras", Receipt{Amount: d("10"), HasExtras: true, Rows: []ReceiptRow{row("CLIENT_INVOICE", "inv-1", "10")}}, false},
 	}
 	for _, c := range cases {
 		if got := c.r.TouchesOnly("inv-1"); got != c.want {

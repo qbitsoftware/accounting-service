@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+// The payment bodies in this file are SYNTHETIC, written from the API spec.
+// TODO(before tagging v0.15.0): add fixtures recorded from the SmartAccounts
+// sandbox — `deleted` element types, orderNumber, extras — and re-run (design
+// §2.5, Gate A items 3, 5, 7).
+
 // pageServer answers payments:get page N (1-based) from pages, and anything
 // else with "{}". It counts requests.
 func pageServer(t *testing.T, pages []string, n *int32, queries *[]string) *Client {
@@ -190,7 +195,9 @@ func TestGetPayment(t *testing.T) {
 	if err != nil || got.ID != "p1" || got.Document != "KLUBIO-PMT-9" {
 		t.Fatalf("GetPayment = %+v, %v", got, err)
 	}
-	if q := stripSigned(queries[0]); q != "apikey=pub-key&fetchComments=true&fetchRows=true&id=p1&pageNumber=1" {
+	// dateFrom rides along with id so a default date window (if SA has one)
+	// cannot hide an old receipt that still exists and make it read as deleted.
+	if q := stripSigned(queries[0]); q != "apikey=pub-key&dateFrom=01.01.2000&fetchComments=true&fetchRows=true&id=p1&pageNumber=1" {
 		t.Errorf("query = %s", q)
 	}
 
@@ -203,13 +210,32 @@ func TestGetPayment(t *testing.T) {
 
 	other := pageServer(t, []string{`{"payments":[{"id":"p2","amount":5}],"hasMoreEntries":false}`}, new(int32), nil)
 	_, err = other.GetPayment(context.Background(), "p1")
-	if err == nil || (errors.As(err, &apiErr) && apiErr.StatusCode == 404) {
-		t.Fatalf("an answer holding another payment must be an error, never not-found: %v", err)
+	if !errors.Is(err, ErrIDFilterIgnored) || (errors.As(err, &apiErr) && apiErr.StatusCode == 404) {
+		t.Fatalf("an answer holding another payment must be ErrIDFilterIgnored, never not-found: %v", err)
 	}
 
 	paged := pageServer(t, []string{`{"payments":[{"id":"p1","amount":5}],"hasMoreEntries":true}`}, new(int32), nil)
-	if _, err = paged.GetPayment(context.Background(), "p1"); err == nil || (errors.As(err, &apiErr) && apiErr.StatusCode == 404) {
+	_, err = paged.GetPayment(context.Background(), "p1")
+	if !errors.Is(err, ErrIDFilterIgnored) || !errors.Is(err, ErrTooManyPages) || (errors.As(err, &apiErr) && apiErr.StatusCode == 404) {
 		t.Fatalf("a paged by-id answer means the filter was ignored: %v", err)
+	}
+}
+
+func TestPaymentChangeItemHasExtras(t *testing.T) {
+	for raw, want := range map[string]bool{
+		`{"id":"p"}`:               false,
+		`{"id":"p","extras":null}`: false,
+		`{"id":"p","extras":[]}`:   false,
+		`{"id":"p","extras":[{"amount":0,"account":"8"}]}`: true,
+		`{"id":"p","extras":{"amount":1}}`:                 true, // unreadable is never "none"
+	} {
+		it := decodePaymentChange([]byte(raw))
+		if got := it.HasExtras(); got != want {
+			t.Errorf("%s: HasExtras = %v, want %v", raw, got, want)
+		}
+	}
+	if it := decodePaymentChange([]byte(`{"id":"p","extras":{"amount":1}}`)); it.DecodeError == "" || it.Unreadable {
+		t.Errorf("a non-array extras is a partial decode error, not an unreadable row: %+v", it)
 	}
 }
 
@@ -254,6 +280,28 @@ func TestListCustomerPaymentsAbortsOnForeignClient(t *testing.T) {
 				t.Fatalf("want ErrPartnerFilterIgnored, got %v", err)
 			}
 		})
+	}
+}
+
+func TestListCustomerPaymentsUnreadableRowIsNotPartnerError(t *testing.T) {
+	c := pageServer(t, []string{`{"payments":[{"id":"p1","partnerType":"CLIENT","client":{"id":"cli-9"},"amount":5},` +
+		`{"id":"p2","amount":{"x":1}}],"hasMoreEntries":false}`}, new(int32), nil)
+	_, err := c.ListCustomerPayments(context.Background(), "cli-9", time.Time{}, time.Time{}, 5)
+	if !errors.Is(err, ErrUnreadablePayment) || errors.Is(err, ErrPartnerFilterIgnored) {
+		t.Fatalf("an undecodable row is a decode problem, not an ignored partner filter: %v", err)
+	}
+}
+
+func TestListCustomerPaymentsTallinnDates(t *testing.T) {
+	var queries []string
+	c := pageServer(t, []string{`{"payments":[],"hasMoreEntries":false}`}, new(int32), &queries)
+	// 22:30 UTC on 30 Sep is already 1 Oct in Tallinn (UTC+3 in summer).
+	late := time.Date(2026, 9, 30, 22, 30, 0, 0, time.UTC)
+	if _, err := c.ListCustomerPayments(context.Background(), "cli-9", late, late, 1); err != nil {
+		t.Fatal(err)
+	}
+	if q := stripSigned(queries[0]); q != "apikey=pub-key&dateFrom=01.10.2026&dateTo=01.10.2026&fetchComments=true&fetchRows=true&pageNumber=1&partnerId=cli-9&partnerType=CLIENT" {
+		t.Errorf("query = %s", q)
 	}
 }
 

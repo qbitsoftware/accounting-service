@@ -32,6 +32,12 @@ var (
 	ErrPartnerFilterIgnored = smartaccounts.ErrPartnerFilterIgnored
 	// ErrTooManyPages: a capped read was still unfinished at its cap.
 	ErrTooManyPages = smartaccounts.ErrTooManyPages
+	// ErrIDFilterIgnored: a by-id read answered other payments, so it says
+	// nothing about whether the asked-for receipt exists.
+	ErrIDFilterIgnored = smartaccounts.ErrIDFilterIgnored
+	// ErrUnreadablePayment: a per-customer read met a receipt it could not
+	// decode, so whose it is — and whether the list is complete — is unknown.
+	ErrUnreadablePayment = smartaccounts.ErrUnreadablePayment
 )
 
 // CreateReceipt books a receipt the way CreatePayment does, and additionally:
@@ -125,21 +131,26 @@ func buildSAReceiptRequest(input CreatePaymentInput, accountType, invoiceID, cli
 
 // ListPaymentChanges reads the modifydate payments feed (rows and comments
 // included) and returns it both as receipts and in the ListPaymentsSince
-// projection. Precise sends Since to the second in Tallinn time (a cursor).
+// projection. Precise sends Since to the second in Tallinn time (a cursor), and
+// Until as the Tallinn calendar date: a UTC date taken between 21:00 and 24:00
+// UTC is the day before Tallinn's today, which would cut the newest changes out
+// of the window. Without Precise both are formatted exactly as ListPaymentsSince
+// formats them.
 func (p *smartProvider) ListPaymentChanges(ctx context.Context, input PaymentChangesInput) (*PaymentChanges, error) {
 	if input.Since.IsZero() {
 		return nil, p.wrapError("ListPaymentChanges", fmt.Errorf("%w: Since is required", ErrInvalidInput))
 	}
 	params := smartaccounts.ListPaymentsParams{
-		DateTo:        saFormatDate(input.Until),
 		DateType:      "modifydate",
 		FetchRows:     true,
 		FetchComments: true,
 	}
 	if input.Precise {
 		params.DateFromPrecise = input.Since
+		params.DateTo = smartaccounts.TallinnDate(input.Until)
 	} else {
 		params.DateFrom = saFormatDate(input.Since)
+		params.DateTo = saFormatDate(input.Until)
 	}
 	if input.ClientsOnly {
 		params.PartnerType = smartaccounts.PartnerClient
@@ -243,6 +254,7 @@ func mapSAReceipt(it smartaccounts.PaymentChangeItem) Receipt {
 		Currency:    it.Currency,
 		Amount:      it.Amount,
 		CustomerID:  it.ClientID,
+		HasExtras:   it.HasExtras(),
 		DecodeError: it.DecodeError,
 	}
 	if it.Client != nil {
