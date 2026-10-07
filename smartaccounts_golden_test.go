@@ -162,35 +162,59 @@ func TestSAListPaymentsSinceQueryGolden(t *testing.T) {
 
 // saFeedPage1 / saFeedPage2 are one modifydate feed read covering every payment
 // shape the pull meets: an advance park, an advance applied to an invoice, the
-// credit-note netting klubio posts, a cash receipt (orderNumber present, number
-// as a bare JSON number) and a vendor payment.
+// credit-note netting klubio posts, a cash receipt and a vendor payment.
 //
-// TODO(before tagging v0.15.0): these pages are SYNTHETIC — written from the
-// API spec, not recorded. The `deleted` element type, the orderNumber shape, the
-// advance park / apply / netting shapes and the cash payload are all unproven.
-// Replace or extend them with raw payloads recorded from the SmartAccounts
-// sandbox (design §2.5; checklist Gate A items 3, 5, 8, 9 — S-a/b/c/f) and
-// re-run the decode goldens. Until then the branch stays untagged.
-const saFeedPage1 = `{"payments":[` +
-	`{"id":"adv-1","date":"01.09.2026","number":"5","document":"KLB-PP-3","partnerType":"CLIENT","clientId":"cli-9",` +
-	`"client":{"id":"cli-9","name":"Mari Maasikas"},"accountType":"BANK","accountName":"LHV klubio","currency":"EUR","amount":50,` +
-	`"prepayment":{"amount":50,"account":"21211"}},` +
-	`{"id":"app-1","date":"02.09.2026","number":"6","partnerType":"CLIENT","clientId":"cli-9",` +
-	`"client":{"id":"cli-9","name":"Mari Maasikas"},"accountType":"BANK","accountName":"LHV klubio","currency":"EUR","amount":0,` +
-	`"rows":[{"amount":20,"type":"CLIENT_INVOICE","id":"inv-1"},{"amount":20,"type":"PREPAYMENT_PAYMENT","id":"adv-1"}]},` +
+// Shapes checked against the live SmartAccounts feed of 07.10.2026 (the
+// sandbox company's payments:get?dateType=modifydate&fetchRows=true; ids
+// shortened, everything else as SmartAccounts sent it):
+//   - `deleted` is page 1's array of objects {accountType, date, id, number}, and
+//     the key is OMITTED, not sent empty, when nothing was deleted (page 2 here);
+//   - every payment carries createdBy ("api" for one made through the API, the
+//     user's email for one a person entered), dateCreated and exchangeRate;
+//   - number and orderNumber are bare JSON numbers;
+//   - an advance park (adv-1) has no rows and a top-level prepayment
+//     {account, amount, description};
+//   - an application (app-1) has amount 0 and its PREPAYMENT_PAYMENT row is
+//     NEGATIVE (the draw), naming the advance's receipt id — the rows sum to the
+//     payment's amount;
+//   - a cash receipt (cash-1) is accountType CASH in the desk "Kassa / Cash".
+//
+// Still synthetic: the netting receipt (net-1; sandbox checklist item 8 is
+// unrecorded) and the vendor payment (ven-1; the sandbox company has none).
+const saFeedPage1 = `{"deleted":[` + saFeedDeleted + `],` + saFeedPage1Body
+
+// saFeedPage1Legacy is page 1 on a window with nothing deleted: SmartAccounts
+// then omits the key. The v0.14.5 read decodes `deleted` as strings and fails
+// the whole page on the live object shape (TestSAListPaymentsSinceLiveDeletedShape),
+// so its decode golden is pinned on this one.
+const saFeedPage1Legacy = `{` + saFeedPage1Body
+
+const saFeedDeleted = `{"accountType":"CASH","date":"08.10.2026","id":"gone-1","number":4},` +
+	`{"accountType":"BANK","date":"07.10.2026","id":"gone-2","number":1}`
+
+const saFeedPage1Body = `"hasMoreEntries":true,"payments":[` +
+	`{"accountName":"LHV klubio","accountType":"BANK","amount":50,"client":{"id":"cli-9","name":"Mari Maasikas"},"clientId":"cli-9",` +
+	`"createdBy":"api","currency":"EUR","date":"01.09.2026","dateCreated":"01.09.2026 22:48:47","document":"KLB-PP-3","exchangeRate":1,` +
+	`"id":"adv-1","number":5,"partnerType":"CLIENT","prepayment":{"account":"21211","amount":50,"description":"KLB-PP-3 Overpayment on invoice RSA000003"}},` +
+	`{"accountName":"LHV klubio","accountType":"BANK","amount":0,"client":{"id":"cli-9","name":"Mari Maasikas"},"clientId":"cli-9",` +
+	`"createdBy":"api","currency":"EUR","date":"02.09.2026","dateCreated":"02.09.2026 23:21:46","document":"KLUBIO-APPLY-2002376","exchangeRate":1,` +
+	`"id":"app-1","number":6,"partnerType":"CLIENT","rows":[` +
+	`{"amount":-20,"description":"Ettemakse (02.09.2026)","id":"adv-1","type":"PREPAYMENT_PAYMENT"},` +
+	`{"amount":20,"description":"RSA000008 (02.09.2026)","id":"inv-1","type":"CLIENT_INVOICE"}]},` +
 	`{"id":"net-1","date":"03.09.2026","number":"7","partnerType":"CLIENT","clientId":"cli-8",` +
 	`"client":{"id":"cli-8","name":"Jaan Tamm"},"accountType":"BANK","accountName":"Tasaarveldus","currency":"EUR","amount":60,` +
 	`"rows":[{"amount":30,"type":"CLIENT_INVOICE","id":"inv-2"},{"amount":30,"type":"CLIENT_INVOICE","id":"cre-2"}]}` +
-	`],"deleted":["gone-1","gone-2"],"hasMoreEntries":true}`
+	`]}`
 
-const saFeedPage2 = `{"payments":[` +
-	`{"id":"cash-1","date":"04.09.2026","number":17,"orderNumber":3,"partnerType":"CLIENT","clientId":"cli-7",` +
-	`"client":{"id":"cli-7","name":"Kati Kask"},"accountType":"CASH","accountName":"Kassa","currency":"EUR","amount":15,` +
-	`"rows":[{"amount":15,"type":"CLIENT_INVOICE","id":"inv-3"}]},` +
+const saFeedPage2 = `{"hasMoreEntries":false,"payments":[` +
+	`{"accountName":"Kassa","accountType":"CASH","amount":15,"client":{"id":"cli-7","name":"Kati Kask"},"clientId":"cli-7",` +
+	`"createdBy":"api","currency":"EUR","date":"04.09.2026","dateCreated":"04.09.2026 00:34:11","document":"KLUBIO-PMT-2002386","exchangeRate":1,` +
+	`"id":"cash-1","number":17,"orderNumber":3,"partnerType":"CLIENT",` +
+	`"rows":[{"amount":15,"description":"RSA000015 (04.09.2026)","id":"inv-3","type":"CLIENT_INVOICE"}]},` +
 	`{"id":"ven-1","date":"05.09.2026","number":"8","partnerType":"VENDOR","vendorId":"ven-9",` +
 	`"vendor":{"id":"ven-9","name":"Saalirent OÜ"},"accountType":"BANK","accountName":"LHV klubio","currency":"EUR","amount":300,` +
 	`"rows":[{"amount":300,"type":"VENDOR_INVOICE","id":"vi-1"}]}` +
-	`],"hasMoreEntries":false}`
+	`]}`
 
 func renderSAPayments(ps []Payment) string {
 	var b strings.Builder
@@ -210,7 +234,7 @@ func TestSAListPaymentsSinceDecodeGolden(t *testing.T) {
 		if strings.Contains(w.Query, "pageNumber=2") {
 			return 200, saFeedPage2
 		}
-		return 200, saFeedPage1
+		return 200, saFeedPage1Legacy
 	})
 	got, err := p.ListPaymentsSince(saCtx, saDay(2026, 7, 9), saDay(2027, 1, 5))
 	if err != nil {
@@ -223,6 +247,26 @@ func TestSAListPaymentsSinceDecodeGolden(t *testing.T) {
 		"ven-1|8|2026-09-05|300|EUR|vendor|ven-9|Saalirent OÜ|LHV klubio|LHV klubio|[vi-1 \"\" 300 fp=0]\n"
 	if r := renderSAPayments(got); r != want {
 		t.Fatalf("decode changed\n got:\n%s\n want:\n%s", r, want)
+	}
+}
+
+// TestSAListPaymentsSinceLiveDeletedShape pins a gap in the v0.14.5 read, not
+// a wish: it decodes `deleted` as a list of strings, and SmartAccounts sends
+// objects ({accountType, date, id, number}; live 07.10.2026) whenever anything
+// in the window was deleted — so that read fails outright for such a window.
+// It is what every unlisted club's pull uses and is deliberately left as it
+// is; the receipt-level read (ListPaymentChanges) reads the shape. Changing
+// this answer changes unlisted clubs' pulls and must be done on purpose.
+func TestSAListPaymentsSinceLiveDeletedShape(t *testing.T) {
+	p, _ := newSAFake(t, func(n int, w saWire) (int, string) {
+		if strings.Contains(w.Query, "pageNumber=2") {
+			return 200, saFeedPage2
+		}
+		return 200, saFeedPage1
+	})
+	if _, err := p.ListPaymentsSince(saCtx, saDay(2026, 7, 9), saDay(2027, 1, 5)); err == nil ||
+		!strings.Contains(err.Error(), "unmarshal page meta") {
+		t.Fatalf("ListPaymentsSince on a live deleted list = %v, want the page-meta decode failure it has always had", err)
 	}
 }
 

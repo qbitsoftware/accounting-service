@@ -283,6 +283,11 @@ func TestSAListPaymentChanges(t *testing.T) {
 	if strings.Join(app.AdvanceSourceIDs, ",") != "adv-1" || len(app.Rows) != 2 || !app.AmountOn("inv-1").Equal(d("20")) || app.TouchesOnly("inv-1") {
 		t.Errorf("application = %+v", app)
 	}
+	// A draw is a NEGATIVE PREPAYMENT_PAYMENT row (live 07.10.2026): the rows
+	// sum to the application's amount, 0. The SDK passes the sign through.
+	if len(app.Rows) != 2 || app.Rows[0].Type != "PREPAYMENT_PAYMENT" || !app.Rows[0].Amount.Equal(d("-20")) || !app.Amount.IsZero() || !app.CreatedThroughAPI() {
+		t.Errorf("application rows = %+v amount=%s createdBy=%q", app.Rows, app.Amount, app.CreatedBy)
+	}
 	net := by["net-1"]
 	if !net.AmountOn("inv-2").Equal(d("30")) || !net.AmountOn("cre-2").Equal(d("30")) || net.TouchesOnly("inv-2") {
 		t.Errorf("netting = %+v", net)
