@@ -86,10 +86,15 @@ func TestListPaymentChangesLenientDeleted(t *testing.T) {
 		{"numbers", `{"payments":[],"deleted":[12,345],"hasMoreEntries":false}`, []string{"12", "345"}, true, false},
 		{"mixed", `{"payments":[],"deleted":["a",7],"hasMoreEntries":false}`, []string{"a", "7"}, true, false},
 		{"empty list", `{"payments":[],"deleted":[],"hasMoreEntries":false}`, []string{}, true, false},
-		{"key missing", `{"payments":[],"hasMoreEntries":false}`, nil, false, false},
+		// Live (07.10.2026): SmartAccounts omits the key when nothing was
+		// deleted, so a readable page without it proves "none".
+		{"key missing", `{"payments":[],"hasMoreEntries":false}`, nil, true, false},
 		{"null", `{"payments":[],"deleted":null,"hasMoreEntries":false}`, nil, false, false},
 		{"missing body", ``, nil, false, false},
-		{"object element", `{"payments":[],"deleted":[{"id":"a"}],"hasMoreEntries":false}`, nil, false, true},
+		{"object element", `{"payments":[],"deleted":[{"id":"a"}],"hasMoreEntries":false}`, []string{"a"}, true, false},
+		// The exact shape a live company returned after one payment was deleted.
+		{"live shape", `{"deleted":[{"accountType":"BANK","date":"07.10.2026","id":"e108a91e-7a5f-4f2f-8a47-ae31d048ae1b","number":2}],"hasMoreEntries":false,"payments":[]}`, []string{"e108a91e-7a5f-4f2f-8a47-ae31d048ae1b"}, true, false},
+		{"object without id", `{"payments":[],"deleted":[{"x":1}],"hasMoreEntries":false}`, nil, false, true},
 		{"not a list", `{"payments":[],"deleted":"a","hasMoreEntries":false}`, nil, false, true},
 	}
 	for _, c := range cases {

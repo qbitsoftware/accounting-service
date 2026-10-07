@@ -143,12 +143,14 @@ type changePage struct {
 // pages and returns its payments, the ids SmartAccounts reports deleted in the
 // window, and whether that deleted list can be trusted to be complete.
 //
-// complete is false whenever page 1 did not carry a `deleted` array at all
-// (missing body, missing key, null). A caller may act on an id that IS in
-// deleted; it may act on an id's ABSENCE from deleted only when complete is
-// true. SANDBOX (checklist item 5): whether SA always sends `deleted`, even as
-// [] on a window with no deletions. Until that is known, absent means "cannot
-// prove", which costs a pull its deletion step and never deletes anything.
+// complete is true when page 1 came back as a JSON object, with or without a
+// `deleted` key. Verified against a live company (07.10.2026): SmartAccounts
+// OMITS the key when the window holds no deletion and sends it, on page 1,
+// as soon as one exists — so a missing key on a readable page means "none",
+// not "unknown". Reading it as unknown made every ordinary pull skip its
+// receipt step. Only an empty or non-object body leaves complete false. A
+// caller may act on an id that IS in deleted; on an id's ABSENCE only when
+// complete is true.
 //
 // The feed is de-duplicated by payment id (the last copy read wins): offset
 // pagination over a modifydate window repeats a payment edited mid-read.
@@ -370,6 +372,11 @@ func (c *Client) readPaymentPages(ctx context.Context, params url.Values, maxPag
 			if err != nil {
 				return nil, nil, false, err
 			}
+			// A readable object page without the key: no deletions (see
+			// ListPaymentChanges). A non-object body proves nothing.
+			if !complete && bytes.TrimSpace(raw)[0] == '{' && len(bytes.TrimSpace(meta.Deleted)) == 0 {
+				complete = true
+			}
 		}
 		arr, err := extractList(raw)
 		if err != nil {
@@ -389,8 +396,10 @@ func (c *Client) readPaymentPages(ctx context.Context, params url.Values, maxPag
 	return nil, nil, false, fmt.Errorf("%w (%d pages of payments:get)", ErrTooManyPages, maxPages)
 }
 
-// decodeDeleted reads page 1's `deleted`. String and number elements are ids;
-// any other shape fails this read only. Absent or null ⇒ (nil, false).
+// decodeDeleted reads page 1's `deleted`. SmartAccounts sends each element as
+// an object — {"accountType":"BANK","date":"07.10.2026","id":"<guid>","number":2}
+// (live, 07.10.2026) — whose id is taken; string and number elements are read
+// as ids too. Any other shape fails this read only. Absent or null ⇒ (nil, false).
 func decodeDeleted(raw json.RawMessage) ([]string, bool, error) {
 	t := bytes.TrimSpace(raw)
 	if len(t) == 0 || string(t) == "null" {
@@ -402,6 +411,14 @@ func decodeDeleted(raw json.RawMessage) ([]string, bool, error) {
 	}
 	out := make([]string, 0, len(elems))
 	for _, e := range elems {
+		if t := bytes.TrimSpace(e); len(t) > 0 && t[0] == '{' {
+			var obj struct {
+				ID json.RawMessage `json:"id"`
+			}
+			if err := json.Unmarshal(t, &obj); err == nil {
+				e = obj.ID
+			}
+		}
 		s, ok := rawScalar(e)
 		if !ok || s == "" {
 			return nil, false, fmt.Errorf("smartaccounts: unreadable deleted id %s", string(e))
