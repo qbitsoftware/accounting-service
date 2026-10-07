@@ -1105,7 +1105,17 @@ func (p *smartProvider) wrapError(op string, err error) error {
 			sentinel = ErrAuthFailed
 		case 404:
 			sentinel = ErrNotFound
-		case 429, 503:
+		case 503:
+			if smartaccounts.IsBillingErrorBody([]byte(apiErr.Message)) {
+				// Still a "come back later" for every caller that counts
+				// attempts or pauses a club on ErrRateLimit, but with the
+				// real reason, so nobody hunts for a request budget that
+				// was never spent.
+				sentinel = fmt.Errorf("%w: SmartAccounts refused the request with \"billing error\" — the company's SmartAccounts subscription or API service is not active", ErrRateLimit)
+				break
+			}
+			sentinel = fmt.Errorf("%w (SmartAccounts allows 60 requests/minute and 1000 per 24 hours per company; a spent 24h budget clears only as the oldest requests age out)", ErrRateLimit)
+		case 429:
 			// SmartAccounts answers 503 for BOTH of its caps — 60 requests per
 			// minute and 1000 per 24 hours — and says which in neither the status
 			// nor the body. The difference matters to whoever reads the error: a

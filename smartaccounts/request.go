@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -105,7 +106,12 @@ func (c *Client) do(ctx context.Context, method, endpoint string, params url.Val
 		// request was never retried at all — a per-customer sweep then silently lost
 		// every customer for the rest of the minute. Honour Retry-After when present,
 		// otherwise back off exponentially; the attempt cap bounds a genuine outage.
-		if (statusCode == http.StatusTooManyRequests || statusCode == http.StatusServiceUnavailable) && attempt < maxRateLimitRetries {
+		// A 503 whose body says "billing error" is not a rate limit: the
+		// company's subscription or API service is not active, and waiting
+		// changes nothing. Retrying it only held a connection test for ~50s,
+		// past every caller's timeout, so the admin saw a timeout instead of
+		// the reason.
+		if (statusCode == http.StatusTooManyRequests || statusCode == http.StatusServiceUnavailable) && attempt < maxRateLimitRetries && !IsBillingErrorBody(respBody) {
 			delay, fromHeader := retryAfter(resp.Header)
 			if !fromHeader {
 				delay = rateLimitBackoff(attempt)
@@ -362,4 +368,11 @@ func encodeQuery(apiKey string, params url.Values) string {
 		}
 	}
 	return string(b)
+}
+
+// IsBillingErrorBody reports whether a response body is SmartAccounts' answer
+// for a company whose subscription or API service is not active:
+// 503 {"errors":[{"code":"GENERAL","message":"Service unavailable (billing error)"}]}.
+func IsBillingErrorBody(body []byte) bool {
+	return strings.Contains(strings.ToLower(string(body)), "billing error")
 }
