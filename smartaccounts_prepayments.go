@@ -96,6 +96,7 @@ func (p *smartProvider) ApplyPrepayment(ctx context.Context, input ApplyPrepayme
 		AccountName: input.BankID,
 		Currency:    input.Currency,
 		Amount:      decimal.Zero, // net-zero: the two rows offset each other
+		Document:    input.Document,
 		Rows: []smartaccounts.PaymentRow{
 			{Type: smartaccounts.RowClientInvoice, ID: inv.ID, Amount: input.Amount},
 			{Type: smartaccounts.RowPrepayment, ID: input.PrepaymentNo, Amount: input.Amount},

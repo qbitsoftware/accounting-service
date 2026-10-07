@@ -3,7 +3,8 @@ package accounting
 import "context"
 
 type TaxService struct {
-	provider Provider
+	provider     Provider
+	providerName string
 }
 
 func (s *TaxService) List(ctx context.Context) ([]Tax, error) {

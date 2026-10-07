@@ -59,12 +59,12 @@ func NewClient(cfg Config) (*Client, error) {
 		providerName: cfg.Provider,
 		Invoices:     &InvoiceService{provider: p, providerName: cfg.Provider},
 		Customers:    &CustomerService{provider: p},
-		Payments:     &PaymentService{provider: p},
+		Payments:     &PaymentService{provider: p, providerName: cfg.Provider},
 		Items:        &ItemService{provider: p},
 		Purchases:    &PurchaseService{provider: p},
-		Taxes:        &TaxService{provider: p},
+		Taxes:        &TaxService{provider: p, providerName: cfg.Provider},
 		Reports:      &ReportService{provider: p},
-		Sync:         &SyncService{provider: p},
+		Sync:         &SyncService{provider: p, providerName: cfg.Provider},
 		Prepayments:  &PrepaymentService{provider: p, providerName: cfg.Provider},
 	}
 	return c, nil

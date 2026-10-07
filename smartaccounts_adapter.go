@@ -891,6 +891,10 @@ func mapSAInvoice(item smartaccounts.InvoiceItem) Invoice {
 		Paid:        paid,
 		Status:      status,
 		ReferenceNo: string(item.ReferenceNumber),
+		// Decode-only additions (v0.15.0): a receipt reader needs to know a row
+		// sits on a credit invoice to tell netting from money.
+		DocType:                item.Type,
+		BaseForCreditInvoiceID: item.BaseForCreditInvoiceID,
 	}
 	if item.Client != nil {
 		inv.CustomerName = item.Client.Name

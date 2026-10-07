@@ -1,0 +1,260 @@
+package accounting
+
+import (
+	"context"
+	"time"
+
+	"github.com/shopspring/decimal"
+)
+
+// Receipt-level operations (v0.15.0).
+//
+// A caller that keeps "one writer per ledger" needs more from a provider than
+// "post a payment": it has to know the id of the receipt it wrote, recognise its
+// own receipts among the accountant's, see each receipt's rows separately, and
+// learn which receipts were deleted. These are optional capabilities, type-
+// asserted like PrepaymentProvider, so a provider that cannot answer them simply
+// does not implement them — and a caller asking anyway gets
+// ErrUnsupportedProvider, never a silent fallback to the old behaviour.
+//
+// SmartAccounts implements all of them. Nothing here changes what any existing
+// method sends.
+
+// ReceiptCreator books a receipt and returns what the provider made of it.
+type ReceiptCreator interface {
+	CreateReceipt(ctx context.Context, input CreatePaymentInput) (*CreatedReceipt, error)
+}
+
+// InvoiceReceiptLister reads one customer's receipts.
+type InvoiceReceiptLister interface {
+	ListInvoiceReceipts(ctx context.Context, input ListInvoiceReceiptsInput) ([]Receipt, error)
+}
+
+// ReceiptGetter reads one receipt by id. A receipt that is gone answers an
+// error for which IsNotFound is true — and only then may the caller conclude
+// it is gone.
+type ReceiptGetter interface {
+	GetReceipt(ctx context.Context, id string) (*Receipt, error)
+}
+
+// PaymentChangeLister reads every receipt changed or deleted in a window.
+type PaymentChangeLister interface {
+	ListPaymentChanges(ctx context.Context, input PaymentChangesInput) (*PaymentChanges, error)
+}
+
+// CashAccountLister lists the provider's cash desks as Banks (ID = Name =
+// the desk's name, AccountCode = its GL account). Kept apart from ListBanks on
+// purpose: a cash desk is not a bank, and merging them into ListBanks would let
+// a bank picker offer one.
+type CashAccountLister interface {
+	ListCashAccounts(ctx context.Context) ([]Bank, error)
+}
+
+// BudgetReporter reports how many requests this process has sent the provider
+// in its budget window. A floor and a hint, never a decision.
+type BudgetReporter interface {
+	BudgetUsed() int
+}
+
+// CreatedReceipt is the receipt a provider booked.
+type CreatedReceipt struct {
+	// ID is the provider's receipt id. It MAY be empty: the receipt exists all
+	// the same, so an empty id is never a failure — the caller recognises the
+	// receipt later by its Document.
+	ID         string
+	Number     string
+	Amount     decimal.Decimal
+	InvoiceID  string
+	CustomerID string
+}
+
+// AllocationKind classifies what one receipt row means for one invoice. The
+// SDK does not classify — only the caller knows which documents are its own
+// credit notes and advances — but the vocabulary is shared.
+type AllocationKind string
+
+const (
+	// AllocMoney is money reaching the invoice.
+	AllocMoney AllocationKind = "money"
+	// AllocFromAdvance is an amount drawn from an advance (a PREPAYMENT_PAYMENT
+	// row funds it), not new money.
+	AllocFromAdvance AllocationKind = "from_advance"
+	// AllocNetting is a credit note closed against its original.
+	AllocNetting AllocationKind = "netting"
+	// AllocUnknown is a row that cannot be classified safely: an unresolvable
+	// document, an unreadable receipt, an advance draw shared by several invoices.
+	AllocUnknown AllocationKind = "unknown"
+)
+
+// ReceiptRow is one allocation row of a receipt.
+type ReceiptRow struct {
+	// Type is the provider's row type (SmartAccounts CLIENT_INVOICE,
+	// VENDOR_INVOICE, PREPAYMENT_PAYMENT).
+	Type string
+	// DocID is the document the row points at: the invoice, or for
+	// PREPAYMENT_PAYMENT the advance's own receipt id.
+	DocID       string
+	Amount      decimal.Decimal
+	Description string
+}
+
+// Receipt is one provider receipt with every row kept apart.
+type Receipt struct {
+	ID          string
+	Number      string
+	Document    string
+	Comment     string
+	OrderNumber string // cash-desk order number, when the provider assigns one
+	Date        time.Time
+	// PartnerType is the provider's partner type ("CLIENT" | "VENDOR").
+	PartnerType string
+	// AccountType is "BANK" or "CASH".
+	AccountType string
+	AccountName string
+	Currency    string
+	// Amount is the whole receipt.
+	Amount       decimal.Decimal
+	CustomerID   string
+	CustomerName string
+	Rows         []ReceiptRow
+	// AdvanceAmount is the advance this receipt PARKS (SmartAccounts' top-level
+	// prepayment object), zero when it parks none.
+	AdvanceAmount decimal.Decimal
+	// AdvanceSourceIDs are the advances this receipt DRAWS from — the ids on its
+	// PREPAYMENT_PAYMENT rows, which are the source advances' receipt ids.
+	AdvanceSourceIDs []string
+	// DecodeError is non-empty when part of the provider's record could not be
+	// read. Such a receipt must never be treated as money; it is returned so the
+	// caller can report it rather than lose it.
+	DecodeError string
+}
+
+// AmountOn is the sum of the receipt's CLIENT_INVOICE rows on invoiceID.
+func (r Receipt) AmountOn(invoiceID string) decimal.Decimal {
+	sum := decimal.Zero
+	for _, row := range r.Rows {
+		if row.Type == saRowClientInvoice && row.DocID == invoiceID {
+			sum = sum.Add(row.Amount)
+		}
+	}
+	return sum
+}
+
+// TouchesOnly reports whether deleting this receipt would change nothing but
+// invoiceID: exactly one row, a CLIENT_INVOICE row on that invoice carrying the
+// whole receipt, no advance parked, nothing unreadable. A provider deletes a
+// receipt with all its rows, so anything else would undo money on some other
+// document too.
+func (r Receipt) TouchesOnly(invoiceID string) bool {
+	if r.DecodeError != "" || len(r.Rows) != 1 || !r.AdvanceAmount.IsZero() || len(r.AdvanceSourceIDs) > 0 {
+		return false
+	}
+	row := r.Rows[0]
+	return row.Type == saRowClientInvoice && row.DocID == invoiceID && row.Amount.Equal(r.Amount)
+}
+
+// PaymentChanges is one read of the provider's change feed.
+type PaymentChanges struct {
+	// Receipts are the changed receipts, each once.
+	Receipts []Receipt
+	// Payments is the same read in the projection ListPaymentsSince returns, for
+	// callers that attribute dates and banks the way they always have.
+	Payments []Payment
+	// Deleted are the ids the provider reports deleted in the window.
+	Deleted []string
+	// DeletedComplete is false when the provider's answer did not prove its
+	// deleted list complete. The caller may act on an id IN Deleted; it must not
+	// act on an id's ABSENCE from Deleted unless this is true.
+	DeletedComplete bool
+}
+
+// saRowClientInvoice mirrors smartaccounts.RowClientInvoice; receipts are a
+// root type and the row vocabulary is the only provider whose rows exist today.
+const saRowClientInvoice = "CLIENT_INVOICE"
+
+// --- Service wrappers ---
+
+// SupportsReceiptCreate reports whether the provider implements CreateReceipt.
+func (s *PaymentService) SupportsReceiptCreate() bool {
+	_, ok := s.provider.(ReceiptCreator)
+	return ok
+}
+
+// CreateReceipt books a receipt and returns its provider id. Unlike Create it
+// honours CreatePaymentInput's receipt fields (AccountKind, Document, Comment,
+// ResolvedInvoice, ExpectInvoiceID). ErrUnsupportedProvider when the provider
+// lacks it — never a fallback to Create, which would book without them.
+func (s *PaymentService) CreateReceipt(ctx context.Context, input CreatePaymentInput) (*CreatedReceipt, error) {
+	rc, ok := s.provider.(ReceiptCreator)
+	if !ok {
+		return nil, &ProviderError{Provider: s.providerName, Op: "CreateReceipt", Err: ErrUnsupportedProvider}
+	}
+	return rc.CreateReceipt(ctx, input)
+}
+
+// SupportsReceiptRead reports whether the provider can read receipts back
+// both per customer and by id.
+func (s *PaymentService) SupportsReceiptRead() bool {
+	_, lister := s.provider.(InvoiceReceiptLister)
+	_, getter := s.provider.(ReceiptGetter)
+	return lister && getter
+}
+
+// ListInvoiceReceipts reads one customer's receipts.
+func (s *PaymentService) ListInvoiceReceipts(ctx context.Context, input ListInvoiceReceiptsInput) ([]Receipt, error) {
+	l, ok := s.provider.(InvoiceReceiptLister)
+	if !ok {
+		return nil, &ProviderError{Provider: s.providerName, Op: "ListInvoiceReceipts", Err: ErrUnsupportedProvider}
+	}
+	return l.ListInvoiceReceipts(ctx, input)
+}
+
+// GetReceipt reads one receipt by id; IsNotFound on a receipt that is gone.
+func (s *PaymentService) GetReceipt(ctx context.Context, id string) (*Receipt, error) {
+	g, ok := s.provider.(ReceiptGetter)
+	if !ok {
+		return nil, &ProviderError{Provider: s.providerName, Op: "GetReceipt", Err: ErrUnsupportedProvider}
+	}
+	return g.GetReceipt(ctx, id)
+}
+
+// SupportsPaymentChanges reports whether the provider has a receipt-level
+// change feed.
+func (s *SyncService) SupportsPaymentChanges() bool {
+	_, ok := s.provider.(PaymentChangeLister)
+	return ok
+}
+
+// ListPaymentChanges reads every receipt changed or deleted in the window.
+func (s *SyncService) ListPaymentChanges(ctx context.Context, input PaymentChangesInput) (*PaymentChanges, error) {
+	l, ok := s.provider.(PaymentChangeLister)
+	if !ok {
+		return nil, &ProviderError{Provider: s.providerName, Op: "ListPaymentChanges", Err: ErrUnsupportedProvider}
+	}
+	return l.ListPaymentChanges(ctx, input)
+}
+
+// SupportsCashAccounts reports whether the provider has a cash-desk register.
+func (s *TaxService) SupportsCashAccounts() bool {
+	_, ok := s.provider.(CashAccountLister)
+	return ok
+}
+
+// ListCashAccounts returns the provider's cash desks.
+func (s *TaxService) ListCashAccounts(ctx context.Context) ([]Bank, error) {
+	l, ok := s.provider.(CashAccountLister)
+	if !ok {
+		return nil, &ProviderError{Provider: s.providerName, Op: "ListCashAccounts", Err: ErrUnsupportedProvider}
+	}
+	return l.ListCashAccounts(ctx)
+}
+
+// BudgetUsed reports this process's request count against the provider's
+// budget window, and whether the provider meters one at all.
+func (c *Client) BudgetUsed() (used int, known bool) {
+	br, ok := c.provider.(BudgetReporter)
+	if !ok {
+		return 0, false
+	}
+	return br.BudgetUsed(), true
+}

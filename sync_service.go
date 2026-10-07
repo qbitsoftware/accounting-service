@@ -6,7 +6,8 @@ import (
 )
 
 type SyncService struct {
-	provider Provider
+	provider     Provider
+	providerName string
 }
 
 // PullInvoiceStatuses returns invoices changed since the given time, using

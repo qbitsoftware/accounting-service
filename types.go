@@ -39,6 +39,12 @@ type Invoice struct {
 	ReferenceNo  string
 	Lines        []InvoiceLine
 	Payments     []InvoicePayment
+	// DocType is the provider's document type where it has one (SmartAccounts:
+	// "CRE" for a credit invoice, "" for an ordinary one). Other providers "".
+	DocType string
+	// BaseForCreditInvoiceID is, on a SmartAccounts credit invoice, the id of
+	// the invoice it credits.
+	BaseForCreditInvoiceID string
 }
 
 type InvoiceLine struct {

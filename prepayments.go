@@ -100,6 +100,10 @@ type ApplyPrepaymentInput struct {
 	Currency     string
 	PaymentDate  time.Time
 	BankID       string
+	// Document is written to the application's document field so the caller
+	// can later recognise the application as its own. SmartAccounts only; empty
+	// ⇒ not sent, which is the request every caller sent before v0.15.0.
+	Document string
 }
 
 type UnallocateToPrepaymentInput struct {

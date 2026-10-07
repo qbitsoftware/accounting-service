@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/shopspring/decimal"
 )
@@ -17,6 +18,19 @@ type ListPaymentsParams struct {
 	AccountType string // "", "BANK", "CASH"
 	PartnerID   string
 	FetchRows   bool
+
+	// The fields below were added in v0.15.0 for the receipt-level reads. All of
+	// them zero puts exactly the v0.14.5 query on the wire (encodeQuery sorts the
+	// keys, so appending them here cannot reorder anything already sent).
+	ID          string
+	AccountName string
+	PartnerName string
+	// FetchComments asks SmartAccounts to include each payment's comment.
+	FetchComments bool
+	// DateFromPrecise, when non-zero, replaces DateFrom with a second-precision
+	// "dd.MM.yyyy_HH:mm:ss" in Europe/Tallinn — the feed cursor. SANDBOX (checklist
+	// item 6): that SA honours the time part, and filters in Tallinn time.
+	DateFromPrecise time.Time
 }
 
 func (p ListPaymentsParams) values() url.Values {
@@ -29,6 +43,15 @@ func (p ListPaymentsParams) values() url.Values {
 	setNonEmpty(v, "partnerId", p.PartnerID)
 	if p.FetchRows {
 		v.Set("fetchRows", "true")
+	}
+	setNonEmpty(v, "id", p.ID)
+	setNonEmpty(v, "accountName", p.AccountName)
+	setNonEmpty(v, "partnerName", p.PartnerName)
+	if p.FetchComments {
+		v.Set("fetchComments", "true")
+	}
+	if !p.DateFromPrecise.IsZero() {
+		v.Set("dateFrom", tallinnTime(p.DateFromPrecise).Format(preciseDateFormat))
 	}
 	return v
 }
@@ -52,6 +75,12 @@ func (c *Client) CreatePayment(ctx context.Context, req CreatePaymentRequest) (*
 	}
 	return &resp, nil
 }
+
+// NettingComment is the comment SettleInvoiceAgainstCredit writes on the netting
+// payment. It is how a reader recognises that payment as netting rather than
+// money — the bytes are the ones v0.14.5 has always sent, so payments already in
+// SmartAccounts carry it too.
+const NettingComment = "auto-settle credit against original"
 
 // SettleInvoiceAgainstCredit posts a netting payment that closes an original
 // client invoice against a linked credit invoice, applying `settle` to each
@@ -78,7 +107,7 @@ func (c *Client) SettleInvoiceAgainstCredit(ctx context.Context, clientID, origi
 		AccountName: c.nettingBank,
 		Currency:    currency,
 		Amount:      settle.Add(settle),
-		Comment:     "auto-settle credit against original",
+		Comment:     NettingComment,
 		Rows: []PaymentRow{
 			{Type: RowClientInvoice, ID: originalID, Amount: settle},
 			{Type: RowClientInvoice, ID: creditID, Amount: settle},

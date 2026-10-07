@@ -3,7 +3,8 @@ package accounting
 import "context"
 
 type PaymentService struct {
-	provider Provider
+	provider     Provider
+	providerName string
 }
 
 func (s *PaymentService) Create(ctx context.Context, input CreatePaymentInput) error {

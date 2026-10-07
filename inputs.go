@@ -151,6 +151,75 @@ type CreatePaymentInput struct {
 	// AutoConfirm books the receipt immediately (Directo: kinnitatud).
 	// An unconfirmed receipt does not settle its invoice.
 	AutoConfirm bool
+
+	// The fields below are read only by SmartAccounts' CreateReceipt (v0.15.0).
+	// Every other adapter, and SmartAccounts' own CreatePayment, ignores them, so
+	// a caller that never sets them sends exactly what it sent before.
+
+	// AccountKind books the receipt into a cash desk instead of a bank account
+	// (SmartAccounts accountType=CASH; BankID then names the cash desk). Zero is
+	// a bank account.
+	AccountKind PaymentAccountKind
+	// Document is written to the receipt's document field, where it is how the
+	// caller later recognises the receipt as its own. Empty ⇒ not sent. PaymentNo
+	// is deliberately not reused for this: it is Directo's receipt number on a
+	// shared input.
+	Document string
+	// Comment is written to the receipt's comment field. Empty ⇒ not sent.
+	Comment string
+	// ResolvedInvoice is the provider's own invoice record the caller already
+	// holds. When set, CreateReceipt books against it directly — no lookup by
+	// number, which is both a request saved and a stronger guard (a number can
+	// repeat; an id cannot).
+	ResolvedInvoice *ResolvedProviderInvoice
+	// ExpectInvoiceID, used when ResolvedInvoice is nil, is the provider id the
+	// invoice found by number must have. A different id refuses the receipt
+	// before anything is written (ErrProviderInvoiceMismatch).
+	ExpectInvoiceID string
+}
+
+// PaymentAccountKind names the kind of account a receipt books into.
+type PaymentAccountKind string
+
+const (
+	// PaymentAccountDefault is a bank account — the only kind before v0.15.0.
+	PaymentAccountDefault PaymentAccountKind = ""
+	// PaymentAccountCash is a cash desk (SmartAccounts accountType=CASH).
+	PaymentAccountCash PaymentAccountKind = "cash"
+)
+
+// ResolvedProviderInvoice identifies an invoice in the provider by the
+// provider's own ids.
+type ResolvedProviderInvoice struct {
+	ID         string
+	CustomerID string
+	Currency   string
+}
+
+// ListInvoiceReceiptsInput asks for one customer's receipts, optionally only
+// those touching one invoice.
+type ListInvoiceReceiptsInput struct {
+	// CustomerID is the provider's customer id. Required.
+	CustomerID string
+	// InvoiceID, when set, keeps only receipts with a row on that invoice.
+	InvoiceID string
+	// Since/Until bound the receipts' document dates. Zero Since ⇒ 01.01.2000;
+	// zero Until ⇒ no upper bound.
+	Since, Until time.Time
+	// MaxPages caps the read (0 ⇒ 5). A read unfinished at the cap fails rather
+	// than returning a part that looks whole.
+	MaxPages int
+}
+
+// PaymentChangesInput asks for every receipt changed (or deleted) in a window.
+type PaymentChangesInput struct {
+	Since, Until time.Time
+	// Precise sends Since to the second (a stored cursor); false sends the date
+	// only, as ListPaymentsSince always has.
+	Precise bool
+	// ClientsOnly restricts the read to customer receipts. Only to be set once
+	// it is known not to narrow the deleted list as well (SANDBOX item 5).
+	ClientsOnly bool
 }
 
 type ListInvoicesInput struct {

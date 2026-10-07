@@ -109,3 +109,18 @@ func resetSharedBudgets() {
 	defer budgetMu.Unlock()
 	budgetByKey = map[string]*dayBudget{}
 }
+
+// used returns how many requests are recorded in the trailing 24 hours,
+// without recording one.
+func (b *dayBudget) used(now time.Time) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	cutoff := now.Add(-24 * time.Hour)
+	n := 0
+	for _, t := range b.sent {
+		if !t.Before(cutoff) {
+			n++
+		}
+	}
+	return n
+}
