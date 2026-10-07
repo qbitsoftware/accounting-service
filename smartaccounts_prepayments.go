@@ -40,11 +40,15 @@ func (p *smartProvider) CreatePrepayment(ctx context.Context, input CreatePrepay
 		return nil, p.wrapError("CreatePrepayment", fmt.Errorf("%w: amount must be positive", ErrInvalidInput))
 	}
 
+	accountType, err := saAccountType(input.AccountKind)
+	if err != nil {
+		return nil, p.wrapError("CreatePrepayment", err)
+	}
 	req := smartaccounts.CreatePaymentRequest{
 		Date:        saFormatDate(input.PaymentDate),
 		PartnerType: smartaccounts.PartnerClient,
 		ClientID:    input.CustomerCode,
-		AccountType: smartaccounts.AccountBank,
+		AccountType: accountType,
 		AccountName: input.BankID,
 		Currency:    input.Currency,
 		Amount:      input.Amount,

@@ -90,6 +90,10 @@ type CreatePrepaymentInput struct {
 	// prepayment.account, e.g. "21211"). EB/Merit ignore it (they use PayMode/bank).
 	Account string
 	Comment string
+	// AccountKind is the kind of account BankID names (SmartAccounts only):
+	// PaymentAccountCash parks the advance in a cash desk (accountType=CASH).
+	// The default sends exactly what was sent before the field existed.
+	AccountKind PaymentAccountKind
 }
 
 type ApplyPrepaymentInput struct {

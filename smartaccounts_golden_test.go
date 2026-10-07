@@ -256,3 +256,27 @@ func TestMapSAPaymentGolden(t *testing.T) {
 		t.Fatalf("vendor mapping changed: %+v", ven)
 	}
 }
+
+// A cash overpayment's advance is parked in the cash desk it was paid into,
+// not a bank (accountType=CASH); only the account type differs.
+func TestSAPrepaymentCreateCashDeskWire(t *testing.T) {
+	p, f := newSAFake(t, func(int, saWire) (int, string) {
+		return 200, `{"paymentId":"adv-2","number":"7","amount":10}`
+	})
+	if _, err := p.CreatePrepayment(saCtx, CreatePrepaymentInput{
+		CustomerCode: "cli-9",
+		PrepaymentNo: "KLB-PP-4",
+		Amount:       d("10"),
+		Currency:     "EUR",
+		PaymentDate:  saDay(2026, 10, 7),
+		BankID:       "Kassa / Cash",
+		Account:      "21211",
+		Comment:      "Ettemaks",
+		AccountKind:  PaymentAccountCash,
+	}); err != nil {
+		t.Fatalf("CreatePrepayment: %v", err)
+	}
+	assertSAWire(t, f, saTestKey(t),
+		`POST purchasesales/payments:add?apikey=KEY {"date":"07.10.2026","document":"KLB-PP-4","partnerType":"CLIENT","clientId":"cli-9","accountType":"CASH","accountName":"Kassa / Cash","currency":"EUR","amount":"10","prepayment":{"amount":"10","description":"Ettemaks","account":"21211"}}`,
+	)
+}
