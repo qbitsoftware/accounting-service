@@ -400,6 +400,23 @@ func TestSAListCashAccounts(t *testing.T) {
 	}
 }
 
+func TestSAListNettingBanks(t *testing.T) {
+	p, f := newSAFake(t, func(int, saWire) (int, string) {
+		return 200, `{"bankAccounts":[{"name":"Swedbank","forNetting":false},{"name":"Tasaarveldus","forNetting":true}]}`
+	})
+	got, err := p.ListNettingBanks(saCtx)
+	if err != nil || len(got) != 1 || got[0] != "Tasaarveldus" {
+		t.Fatalf("ListNettingBanks = %v, %v", got, err)
+	}
+	if w := f.wire(); len(w) != 1 || w[0].Path != "settings/bankaccounts:get" {
+		t.Fatalf("wire = %v", w)
+	}
+	denied, _ := newSAFake(t, func(int, saWire) (int, string) { return 403, `{"error":"no rights"}` })
+	if _, err := denied.ListNettingBanks(saCtx); !IsAuthFailed(err) {
+		t.Fatalf("a missing privilege must surface as auth-failed, got %v", err)
+	}
+}
+
 func TestReceiptTouchesOnly(t *testing.T) {
 	row := func(typ, id, amt string) ReceiptRow { return ReceiptRow{Type: typ, DocID: id, Amount: d(amt)} }
 	cases := []struct {
@@ -435,7 +452,8 @@ func TestOptionalReceiptInterfacesSmartAccountsOnly(t *testing.T) {
 		_, e := p.(PaymentChangeLister)
 		_, g := p.(CashAccountLister)
 		_, h := p.(BudgetReporter)
-		for i, ok := range []bool{a, b, c, e, g, h} {
+		_, n := p.(NettingBankLister)
+		for i, ok := range []bool{a, b, c, e, g, h, n} {
 			if ok != want {
 				t.Errorf("%s: interface #%d implemented=%v, want %v", name, i, ok, want)
 			}
@@ -452,7 +470,7 @@ func TestOptionalReceiptInterfacesSmartAccountsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Payments.SupportsReceiptCreate() || c.Payments.SupportsReceiptRead() || c.Sync.SupportsPaymentChanges() || c.Taxes.SupportsCashAccounts() {
+	if c.Payments.SupportsReceiptCreate() || c.Payments.SupportsReceiptRead() || c.Sync.SupportsPaymentChanges() || c.Taxes.SupportsCashAccounts() || c.Taxes.SupportsNettingBanks() {
 		t.Error("merit must report no receipt capabilities")
 	}
 	var pe *ProviderError

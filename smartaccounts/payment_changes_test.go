@@ -342,6 +342,41 @@ func TestListCashAccounts(t *testing.T) {
 	}
 }
 
+func TestListNettingBankNames(t *testing.T) {
+	var path string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		// Every shape forNetting could plausibly take, plus a missing one and a
+		// nonsense one: only the clear "yes" answers count.
+		_, _ = w.Write([]byte(`{"bankAccounts":[
+			{"name":"Swedbank","account":"1020","iban":"EE1","forNetting":false},
+			{"name":"Tasaarveldus","account":"1090","forNetting":true},
+			{"name":"Str","forNetting":"true"},
+			{"name":"Num","forNetting":1},
+			{"name":"Zero","forNetting":"0"},
+			{"name":"Odd","forNetting":{"x":1}},
+			{"name":"Missing"}
+		]}`))
+	})
+	got, err := c.ListNettingBankNames(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "Tasaarveldus,Str,Num" {
+		t.Fatalf("ListNettingBankNames = %v", got)
+	}
+	if path != "/en/api/settings/bankaccounts:get" {
+		t.Errorf("path = %s", path)
+	}
+
+	// The same payload through the v0.14.5 bank list decodes as before: the
+	// new read never touched BankAccountItem.
+	banks, err := c.ListBankAccounts(context.Background())
+	if err != nil || len(banks) != 7 || banks[0].Name != "Swedbank" || banks[0].IBAN != "EE1" {
+		t.Fatalf("ListBankAccounts = %+v, %v", banks, err)
+	}
+}
+
 func TestBudgetUsed(t *testing.T) {
 	resetSharedBudgets()
 	t.Cleanup(resetSharedBudgets)

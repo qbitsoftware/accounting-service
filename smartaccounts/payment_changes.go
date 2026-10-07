@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -279,6 +280,51 @@ func (c *Client) ListCashAccounts(ctx context.Context) ([]CashAccountItem, error
 		return nil, err
 	}
 	return items, nil
+}
+
+// nettingBankItem is the decode target of ListNettingBankNames only. The
+// existing BankAccountItem (ListBankAccounts, ListBanks) is not touched: forNetting
+// is read here, raw and leniently, so an unexpected shape of that one field can
+// never fail the bank list every push and setup screen already depends on.
+type nettingBankItem struct {
+	Name       string          `json:"name"`
+	ForNetting json.RawMessage `json:"forNetting"`
+}
+
+// ListNettingBankNames returns the names of the bank accounts the company marks
+// forNetting — SmartAccounts' own default for netting credit invoices against
+// invoices. A separate read of settings/bankaccounts (one request) so the old
+// bank list keeps its v0.14.5 decode; a forNetting value it cannot read counts
+// as false.
+func (c *Client) ListNettingBankNames(ctx context.Context) ([]string, error) {
+	var items []nettingBankItem
+	if err := c.getAll(ctx, "settings/bankaccounts:get", nil, &items); err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, it := range items {
+		if it.Name != "" && rawTrue(it.ForNetting) {
+			names = append(names, it.Name)
+		}
+	}
+	return names, nil
+}
+
+// rawTrue reads a JSON flag that may arrive as true, "true", 1 or "1".
+func rawTrue(raw json.RawMessage) bool {
+	t := bytes.TrimSpace(raw)
+	if string(t) == "true" {
+		return true
+	}
+	s, ok := rawScalar(t)
+	if !ok {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "true", "1":
+		return true
+	}
+	return false
 }
 
 // BudgetUsed returns how many requests this process has sent for this company

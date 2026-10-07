@@ -57,6 +57,13 @@ type CashAccountLister interface {
 	ListCashAccounts(ctx context.Context) ([]Bank, error)
 }
 
+// NettingBankLister names the bank accounts the provider itself marks as its
+// default for netting credit invoices against invoices (SmartAccounts'
+// bankaccounts.forNetting). Read for setup advice only.
+type NettingBankLister interface {
+	ListNettingBanks(ctx context.Context) ([]string, error)
+}
+
 // BudgetReporter reports how many requests this process has sent the provider
 // in its budget window. A floor and a hint, never a decision.
 type BudgetReporter interface {
@@ -260,6 +267,21 @@ func (s *TaxService) ListCashAccounts(ctx context.Context) ([]Bank, error) {
 		return nil, &ProviderError{Provider: s.providerName, Op: "ListCashAccounts", Err: ErrUnsupportedProvider}
 	}
 	return l.ListCashAccounts(ctx)
+}
+
+// SupportsNettingBanks reports whether the provider marks a netting bank.
+func (s *TaxService) SupportsNettingBanks() bool {
+	_, ok := s.provider.(NettingBankLister)
+	return ok
+}
+
+// ListNettingBanks names the provider's netting bank accounts.
+func (s *TaxService) ListNettingBanks(ctx context.Context) ([]string, error) {
+	l, ok := s.provider.(NettingBankLister)
+	if !ok {
+		return nil, &ProviderError{Provider: s.providerName, Op: "ListNettingBanks", Err: ErrUnsupportedProvider}
+	}
+	return l.ListNettingBanks(ctx)
 }
 
 // BudgetUsed reports this process's request count against the provider's

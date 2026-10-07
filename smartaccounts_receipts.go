@@ -20,6 +20,7 @@ var (
 	_ ReceiptGetter        = (*smartProvider)(nil)
 	_ PaymentChangeLister  = (*smartProvider)(nil)
 	_ CashAccountLister    = (*smartProvider)(nil)
+	_ NettingBankLister    = (*smartProvider)(nil)
 	_ BudgetReporter       = (*smartProvider)(nil)
 )
 
@@ -231,6 +232,15 @@ func (p *smartProvider) ListCashAccounts(ctx context.Context) ([]Bank, error) {
 		out[i] = Bank{ID: c.Name, Name: c.Name, AccountCode: c.Account, CurrencyCode: c.Currency}
 	}
 	return out, nil
+}
+
+// ListNettingBanks names the bank accounts the company marks forNetting.
+func (p *smartProvider) ListNettingBanks(ctx context.Context) ([]string, error) {
+	names, err := p.client.ListNettingBankNames(ctx)
+	if err != nil {
+		return nil, p.wrapError("ListNettingBanks", err)
+	}
+	return names, nil
 }
 
 // BudgetUsed is this process's request count for the company in the trailing
