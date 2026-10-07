@@ -91,6 +91,12 @@ type PaymentChangeItem struct {
 	// matters here, because deleting a payment deletes those postings with it.
 	ExtrasRaw json.RawMessage `json:"extras"`
 
+	// CreatedByRaw is SmartAccounts' `createdBy`: "api" for a payment made
+	// through the API (an integration such as klubio), the user's email for one
+	// a person entered — a statement import included (live, 07.10.2026). Kept
+	// raw so an odd value cannot fail the row's decode; read with CreatedBy.
+	CreatedByRaw json.RawMessage `json:"createdBy"`
+
 	// Prepayment is PrepaymentRaw parsed into the existing request-side shape;
 	// nil when the payment parked no advance or the object could not be read.
 	Prepayment *PaymentPrepayment `json:"-"`
@@ -116,6 +122,16 @@ func (p PaymentChangeItem) HasExtras() bool {
 		return true
 	}
 	return len(elems) > 0
+}
+
+// CreatedByAPI is the createdBy value SmartAccounts writes on a payment made
+// through the API.
+const CreatedByAPI = "api"
+
+// CreatedBy returns who made the payment, "" when absent or unreadable.
+func (p PaymentChangeItem) CreatedBy() string {
+	s, _ := rawScalar(p.CreatedByRaw)
+	return s
 }
 
 // OrderNumberString returns the cash-desk order number as text, "" when absent.

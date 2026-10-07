@@ -554,3 +554,38 @@ func TestOptionalReceiptInterfacesSmartAccountsOnly(t *testing.T) {
 		t.Error("smartaccounts meters its budget")
 	}
 }
+
+// SmartAccounts writes createdBy on every payment: "api" for one made through
+// the API and the user's email for one a person entered — a statement import
+// included (live, 07.10.2026). An odd value must not fail the row; absent reads
+// as unknown, never as the API.
+func TestSAReceiptCreatedBy(t *testing.T) {
+	p, _ := newSAFake(t, func(int, saWire) (int, string) {
+		return 200, `{"payments":[` +
+			`{"id":"ours","date":"08.10.2026","partnerType":"CLIENT","amount":5,"createdBy":"api","document":"KLUBIO-PMT-1"},` +
+			`{"id":"person","date":"08.10.2026","partnerType":"CLIENT","amount":15,"createdBy":"accountant@example.ee"},` +
+			`{"id":"unsaid","date":"08.10.2026","partnerType":"CLIENT","amount":15},` +
+			`{"id":"odd","date":"08.10.2026","partnerType":"CLIENT","amount":15,"createdBy":{"x":1}}` +
+			`],"hasMoreEntries":false}`
+	})
+	ch, err := p.ListPaymentChanges(saCtx, PaymentChangesInput{Since: saDay(2026, 10, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]Receipt{}
+	for _, r := range ch.Receipts {
+		by[r.ID] = r
+	}
+	if r := by["ours"]; r.CreatedBy != "api" || !r.CreatedThroughAPI() {
+		t.Errorf("api receipt = %q api=%v", r.CreatedBy, r.CreatedThroughAPI())
+	}
+	if r := by["person"]; r.CreatedBy != "accountant@example.ee" || r.CreatedThroughAPI() {
+		t.Errorf("person receipt = %q api=%v", r.CreatedBy, r.CreatedThroughAPI())
+	}
+	if r := by["unsaid"]; r.CreatedBy != "" || r.CreatedThroughAPI() {
+		t.Errorf("absent createdBy = %q api=%v", r.CreatedBy, r.CreatedThroughAPI())
+	}
+	if r := by["odd"]; r.DecodeError != "" || r.CreatedThroughAPI() || !r.Amount.Equal(d("15")) {
+		t.Errorf("an odd createdBy must neither fail the row nor read as the API: %+v", r)
+	}
+}

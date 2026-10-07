@@ -148,10 +148,23 @@ type Receipt struct {
 	// `extras`: an accountant's fee or rounding posting on an account). They are
 	// not allocations, but deleting the receipt deletes them too.
 	HasExtras bool
+	// CreatedBy is who made the receipt, as the provider records it.
+	// SmartAccounts writes "api" for one made through the API and the user's
+	// email for one a person entered (a statement import included); "" when the
+	// provider does not say. Use CreatedThroughAPI rather than comparing.
+	CreatedBy string
 	// DecodeError is non-empty when part of the provider's record could not be
 	// read. Such a receipt must never be treated as money; it is returned so the
 	// caller can report it rather than lose it.
 	DecodeError string
+}
+
+// CreatedThroughAPI reports whether the provider says the receipt was made
+// through its API. It is evidence that an integration made it, not which one;
+// a person-entered receipt (CreatedBy an email) and an unknown one ("") both
+// answer false.
+func (r Receipt) CreatedThroughAPI() bool {
+	return r.CreatedBy == saCreatedByAPI
 }
 
 // AmountOn is the sum of the receipt's CLIENT_INVOICE rows on invoiceID.
@@ -198,6 +211,9 @@ type PaymentChanges struct {
 // saRowClientInvoice mirrors smartaccounts.RowClientInvoice; receipts are a
 // root type and the row vocabulary is the only provider whose rows exist today.
 const saRowClientInvoice = "CLIENT_INVOICE"
+
+// saCreatedByAPI mirrors smartaccounts.CreatedByAPI.
+const saCreatedByAPI = "api"
 
 // --- Service wrappers ---
 

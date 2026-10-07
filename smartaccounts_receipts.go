@@ -265,6 +265,7 @@ func mapSAReceipt(it smartaccounts.PaymentChangeItem) Receipt {
 		Amount:      it.Amount,
 		CustomerID:  it.ClientID,
 		HasExtras:   it.HasExtras(),
+		CreatedBy:   it.CreatedBy(),
 		DecodeError: it.DecodeError,
 	}
 	if it.Client != nil {
