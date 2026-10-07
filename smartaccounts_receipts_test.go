@@ -176,6 +176,55 @@ func TestSAApplyPrepaymentDocumentOptIn(t *testing.T) {
 	// Zero Document is the v0.14.5 request: TestSAPrepaymentApplyWireGolden.
 }
 
+// ApplyPrepaymentReceipt sends exactly ApplyPrepayment's request and returns
+// the application's paymentId; an answer without an id is not a failure.
+func TestSAApplyPrepaymentReceiptReturnsID(t *testing.T) {
+	in := ApplyPrepaymentInput{CustomerCode: "cli-9", InvoiceNo: "2026-0042", PrepaymentNo: "adv-1",
+		Amount: d("20"), Currency: "EUR", PaymentDate: saDay(2026, 9, 5), BankID: "LHV klubio", Document: "KLUBIO-APPLY-77"}
+	respond := func(body string) func(int, saWire) (int, string) {
+		return func(n int, w saWire) (int, string) {
+			if strings.HasPrefix(w.Path, "purchasesales/clientinvoices:get") {
+				return 200, saInvoiceByNumber
+			}
+			return 200, body
+		}
+	}
+
+	plain, pf := newSAFake(t, respond(`{"paymentId":"app-1","number":14}`))
+	if err := plain.ApplyPrepayment(saCtx, in); err != nil {
+		t.Fatal(err)
+	}
+	p, f := newSAFake(t, respond(`{"paymentId":"app-1","number":14}`))
+	got, err := p.ApplyPrepaymentReceipt(saCtx, in)
+	if err != nil {
+		t.Fatalf("ApplyPrepaymentReceipt: %v", err)
+	}
+	if got.ID != "app-1" || got.Number != "14" || got.InvoiceID != "inv-1" || got.CustomerID != "cli-9" {
+		t.Errorf("created = %+v", got)
+	}
+	a, b := pf.wire(), f.wire()
+	if len(a) != len(b) {
+		t.Fatalf("requests: ApplyPrepayment %d, ApplyPrepaymentReceipt %d", len(a), len(b))
+	}
+	for i := range a {
+		if a[i].Method != b[i].Method || a[i].Path != b[i].Path || a[i].Body != b[i].Body {
+			t.Errorf("request %d differs:\n  apply   %s\n  receipt %s", i, a[i], b[i])
+		}
+	}
+
+	empty, _ := newSAFake(t, respond(``))
+	got, err = empty.ApplyPrepaymentReceipt(saCtx, in)
+	if err != nil || got == nil || got.ID != "" {
+		t.Errorf("empty answer: %+v, %v (want an empty id, no error)", got, err)
+	}
+
+	bad := in
+	bad.PrepaymentNo = ""
+	if _, err := p.ApplyPrepaymentReceipt(saCtx, bad); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("missing advance id: %v, want ErrInvalidInput", err)
+	}
+}
+
 func TestSAInvoiceDocTypeMapped(t *testing.T) {
 	p, _ := newSAFake(t, func(int, saWire) (int, string) {
 		return 200, `{"clientInvoices":[{"id":"cre-2","clientId":"cli-8","type":"CRE","baseForCreditInvoiceId":"inv-2",` +
@@ -453,7 +502,8 @@ func TestOptionalReceiptInterfacesSmartAccountsOnly(t *testing.T) {
 		_, g := p.(CashAccountLister)
 		_, h := p.(BudgetReporter)
 		_, n := p.(NettingBankLister)
-		for i, ok := range []bool{a, b, c, e, g, h, n} {
+		_, ra := p.(PrepaymentReceiptApplier)
+		for i, ok := range []bool{a, b, c, e, g, h, n, ra} {
 			if ok != want {
 				t.Errorf("%s: interface #%d implemented=%v, want %v", name, i, ok, want)
 			}
@@ -470,7 +520,7 @@ func TestOptionalReceiptInterfacesSmartAccountsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Payments.SupportsReceiptCreate() || c.Payments.SupportsReceiptRead() || c.Sync.SupportsPaymentChanges() || c.Taxes.SupportsCashAccounts() || c.Taxes.SupportsNettingBanks() {
+	if c.Payments.SupportsReceiptCreate() || c.Payments.SupportsReceiptRead() || c.Sync.SupportsPaymentChanges() || c.Taxes.SupportsCashAccounts() || c.Taxes.SupportsNettingBanks() || c.Prepayments.SupportsApplyReceipt() {
 		t.Error("merit must report no receipt capabilities")
 	}
 	var pe *ProviderError

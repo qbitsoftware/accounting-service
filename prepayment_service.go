@@ -43,6 +43,24 @@ func (s *PrepaymentService) Apply(ctx context.Context, input ApplyPrepaymentInpu
 	return pp.ApplyPrepayment(ctx, input)
 }
 
+// SupportsApplyReceipt reports whether the provider can apply a prepayment
+// and return the id of the application it booked (PrepaymentReceiptApplier).
+func (s *PrepaymentService) SupportsApplyReceipt() bool {
+	_, ok := s.provider.(PrepaymentReceiptApplier)
+	return ok
+}
+
+// ApplyReceipt is Apply that returns the provider's id for the application.
+// ErrUnsupportedProvider when the provider lacks it — never a fallback to
+// Apply, whose answer carries no id.
+func (s *PrepaymentService) ApplyReceipt(ctx context.Context, input ApplyPrepaymentInput) (*CreatedReceipt, error) {
+	ra, ok := s.provider.(PrepaymentReceiptApplier)
+	if !ok {
+		return nil, &ProviderError{Provider: s.providerName, Op: "ApplyPrepaymentReceipt", Err: ErrUnsupportedProvider}
+	}
+	return ra.ApplyPrepaymentReceipt(ctx, input)
+}
+
 // Unallocate frees a paid amount off an invoice into a new prepayment.
 func (s *PrepaymentService) Unallocate(ctx context.Context, input UnallocateToPrepaymentInput) (*Prepayment, error) {
 	pp, err := s.capable("UnallocateToPrepayment")

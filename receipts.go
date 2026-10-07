@@ -25,6 +25,13 @@ type ReceiptCreator interface {
 	CreateReceipt(ctx context.Context, input CreatePaymentInput) (*CreatedReceipt, error)
 }
 
+// PrepaymentReceiptApplier applies a prepayment like
+// PrepaymentProvider.ApplyPrepayment and returns what the provider made of the
+// application — its id above all. Opt-in: ApplyPrepayment is unchanged.
+type PrepaymentReceiptApplier interface {
+	ApplyPrepaymentReceipt(ctx context.Context, input ApplyPrepaymentInput) (*CreatedReceipt, error)
+}
+
 // InvoiceReceiptLister reads one customer's receipts.
 type InvoiceReceiptLister interface {
 	ListInvoiceReceipts(ctx context.Context, input ListInvoiceReceiptsInput) ([]Receipt, error)

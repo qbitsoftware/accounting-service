@@ -81,15 +81,42 @@ func (p *smartProvider) CreatePrepayment(ctx context.Context, input CreatePrepay
 // input.PrepaymentNo is the parked payment's SA id (from CreatePrepayment);
 // input.InvoiceNo is the invoice NUMBER, resolved here to its SA id for the row.
 func (p *smartProvider) ApplyPrepayment(ctx context.Context, input ApplyPrepaymentInput) error {
+	_, _, err := p.applyPrepayment(ctx, "ApplyPrepayment", input)
+	return err
+}
+
+// ApplyPrepaymentReceipt is ApplyPrepayment that also returns what SmartAccounts
+// made of the application: its paymentId, so the caller can store it and find
+// the application again (to read it, or to refuse deleting it) without a
+// document search. The request is ApplyPrepayment's, byte for byte — only the
+// answer is read. An empty id is not a failure, as for CreateReceipt: the
+// application exists, and its Document still names it.
+func (p *smartProvider) ApplyPrepaymentReceipt(ctx context.Context, input ApplyPrepaymentInput) (*CreatedReceipt, error) {
+	resp, invoiceID, err := p.applyPrepayment(ctx, "ApplyPrepaymentReceipt", input)
+	if err != nil {
+		return nil, err
+	}
+	out := &CreatedReceipt{InvoiceID: invoiceID, CustomerID: input.CustomerCode}
+	if resp != nil {
+		out.ID = resp.PaymentID
+		out.Number = string(resp.Number)
+		out.Amount = resp.Amount
+	}
+	return out, nil
+}
+
+// applyPrepayment builds and sends the application. op names the caller in a
+// wrapped error. It returns SmartAccounts' answer and the invoice's SA id.
+func (p *smartProvider) applyPrepayment(ctx context.Context, op string, input ApplyPrepaymentInput) (*smartaccounts.PaymentResponse, string, error) {
 	if input.CustomerCode == "" || input.InvoiceNo == "" || input.PrepaymentNo == "" {
-		return p.wrapError("ApplyPrepayment", fmt.Errorf("%w: CustomerCode, InvoiceNo and PrepaymentNo are required", ErrInvalidInput))
+		return nil, "", p.wrapError(op, fmt.Errorf("%w: CustomerCode, InvoiceNo and PrepaymentNo are required", ErrInvalidInput))
 	}
 	if !input.Amount.IsPositive() {
-		return p.wrapError("ApplyPrepayment", fmt.Errorf("%w: amount must be positive", ErrInvalidInput))
+		return nil, "", p.wrapError(op, fmt.Errorf("%w: amount must be positive", ErrInvalidInput))
 	}
 	inv, err := p.client.FindInvoiceByNumber(ctx, input.InvoiceNo)
 	if err != nil {
-		return p.wrapError("ApplyPrepayment", fmt.Errorf("resolve invoice %s: %w", input.InvoiceNo, err))
+		return nil, "", p.wrapError(op, fmt.Errorf("resolve invoice %s: %w", input.InvoiceNo, err))
 	}
 
 	req := smartaccounts.CreatePaymentRequest{
@@ -106,8 +133,11 @@ func (p *smartProvider) ApplyPrepayment(ctx context.Context, input ApplyPrepayme
 			{Type: smartaccounts.RowPrepayment, ID: input.PrepaymentNo, Amount: input.Amount},
 		},
 	}
-	_, err = p.client.CreatePayment(ctx, req)
-	return p.wrapError("ApplyPrepayment", err)
+	resp, err := p.client.CreatePayment(ctx, req)
+	if err != nil {
+		return nil, inv.ID, p.wrapError(op, err)
+	}
+	return resp, inv.ID, nil
 }
 
 // UnallocateToPrepayment is unsupported on SmartAccounts. Unlike Excellent
