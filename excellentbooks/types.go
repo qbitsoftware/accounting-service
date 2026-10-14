@@ -1,6 +1,9 @@
 package excellentbooks
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+)
 
 // Response is the top-level JSON response wrapper from Excellent Books.
 // The data object contains a register-named array of records.
@@ -60,53 +63,53 @@ type Invoice struct {
 // InvoiceRow represents a line item on an invoice.
 type InvoiceRow struct {
 	RowNumber string `json:"@rownumber"`
-	Stp       string `json:"stp"`       // Row type: 1=normal, 3=credit
-	ArtCode   string `json:"ArtCode"`   // Article/item code
-	Quant     string `json:"Quant"`     // Quantity
-	Price     string `json:"Price"`     // Unit price
-	Sum       string `json:"Sum"`       // Line total (excl VAT)
-	VRebate   string `json:"vRebate"`   // Discount %
-	SalesAcc  string `json:"SalesAcc"`  // Sales account
-	Spec      string `json:"Spec"`      // Description
-	VATCode   string `json:"VATCode"`   // VAT code
-	UnitCode  string `json:"UnitCode"`  // Unit
-	Objects   string `json:"Objects"`   // Cost center / dimension
-	OrdRow    string `json:"OrdRow"`    // Original order row reference
+	Stp       string `json:"stp"`      // Row type: 1=normal, 3=credit
+	ArtCode   string `json:"ArtCode"`  // Article/item code
+	Quant     string `json:"Quant"`    // Quantity
+	Price     string `json:"Price"`    // Unit price
+	Sum       string `json:"Sum"`      // Line total (excl VAT)
+	VRebate   string `json:"vRebate"`  // Discount %
+	SalesAcc  string `json:"SalesAcc"` // Sales account
+	Spec      string `json:"Spec"`     // Description
+	VATCode   string `json:"VATCode"`  // VAT code
+	UnitCode  string `json:"UnitCode"` // Unit
+	Objects   string `json:"Objects"`  // Cost center / dimension
+	OrdRow    string `json:"OrdRow"`   // Original order row reference
 }
 
 // Customer represents a contact (register CUVc).
 type Customer struct {
-	Code         string `json:"Code"`
-	Name         string `json:"Name"`
-	Person       string `json:"Person"`
-	Phone        string `json:"Phone"`
-	Fax          string `json:"Fax"`
-	Email        string `json:"eMail"`
-	VATNr        string `json:"VATNr"`
-	CountryCode  string `json:"CountryCode"`
-	CurncyCode   string `json:"CurncyCode"`
-	PayDeal      string `json:"PayDeal"`
-	RegNr1       string `json:"RegNr1"`
-	RegNr2       string `json:"RegNr2"`
-	InvAddr0     string `json:"InvAddr0"`
-	InvAddr1     string `json:"InvAddr1"`
-	InvAddr2     string `json:"InvAddr2"`
-	InvAddr3     string `json:"InvAddr3"`
-	InvAddr4     string `json:"InvAddr4"`
-	DelAddr0     string `json:"DelAddr0"`
-	DelAddr1     string `json:"DelAddr1"`
-	DelAddr2     string `json:"DelAddr2"`
-	WWWAddr      string `json:"wwwAddr"`
-	CustType     string `json:"CustType"`  // 0=customer, 1=vendor, 2=both
-	DateCreated  string `json:"DateCreated"`
-	DateChanged  string `json:"DateChanged"`
-	BlockedFlag  string `json:"blockedFlag"`
-	SalesMan     string `json:"SalesMan"`
-	Comment      string `json:"Comment"`
-	Objects      string `json:"Objects"`
-	BankAccount  string `json:"BankAccount"`
-	Sequence     string `json:"@sequence"`
-	URL          string `json:"@url"`
+	Code        string `json:"Code"`
+	Name        string `json:"Name"`
+	Person      string `json:"Person"`
+	Phone       string `json:"Phone"`
+	Fax         string `json:"Fax"`
+	Email       string `json:"eMail"`
+	VATNr       string `json:"VATNr"`
+	CountryCode string `json:"CountryCode"`
+	CurncyCode  string `json:"CurncyCode"`
+	PayDeal     string `json:"PayDeal"`
+	RegNr1      string `json:"RegNr1"`
+	RegNr2      string `json:"RegNr2"`
+	InvAddr0    string `json:"InvAddr0"`
+	InvAddr1    string `json:"InvAddr1"`
+	InvAddr2    string `json:"InvAddr2"`
+	InvAddr3    string `json:"InvAddr3"`
+	InvAddr4    string `json:"InvAddr4"`
+	DelAddr0    string `json:"DelAddr0"`
+	DelAddr1    string `json:"DelAddr1"`
+	DelAddr2    string `json:"DelAddr2"`
+	WWWAddr     string `json:"wwwAddr"`
+	CustType    string `json:"CustType"` // 0=customer, 1=vendor, 2=both
+	DateCreated string `json:"DateCreated"`
+	DateChanged string `json:"DateChanged"`
+	BlockedFlag string `json:"blockedFlag"`
+	SalesMan    string `json:"SalesMan"`
+	Comment     string `json:"Comment"`
+	Objects     string `json:"Objects"`
+	BankAccount string `json:"BankAccount"`
+	Sequence    string `json:"@sequence"`
+	URL         string `json:"@url"`
 }
 
 // Item represents an article/product (register INVc).
@@ -114,9 +117,9 @@ type Item struct {
 	Code       string `json:"Code"`
 	Name       string `json:"Name"`
 	Unittext   string `json:"Unittext"`
-	UPrice1    string `json:"UPrice1"`   // Sales price
-	InPrice    string `json:"InPrice"`   // Purchase price
-	ItemType   string `json:"ItemType"`  // 1=stock, 2=service
+	UPrice1    string `json:"UPrice1"`  // Sales price
+	InPrice    string `json:"InPrice"`  // Purchase price
+	ItemType   string `json:"ItemType"` // 1=stock, 2=service
 	Group      string `json:"Group"`
 	SalesAcc   string `json:"SalesAcc"`
 	VATCode    string `json:"VATCode"`
@@ -138,6 +141,10 @@ type Receipt struct {
 	Rows       []ReceiptRow `json:"rows,omitempty"`
 	Sequence   string       `json:"@sequence"`
 	URL        string       `json:"@url"`
+	// Invalid is the receipt's invalidation flag, when IPVc has one (sandbox
+	// item E5: unverified). FlexString so that a number or a boolean there can
+	// never fail the decode of a whole receipt list.
+	Invalid FlexString `json:"Invalid"`
 }
 
 // ReceiptRow represents a line item on a receipt.
@@ -208,13 +215,13 @@ type Project struct {
 // Standard Books returns: Code (2 chars), pdComment (description),
 // PDType (1=Regular, 2=Cash, 3=Credit, 4=Next month, ...), pdays (net days).
 type PaymentTerm struct {
-	Code      string `json:"Code"`
-	Comment   string `json:"pdComment"`
-	PDType    string `json:"PDType"`
-	NetDays   string `json:"pdays"`
-	Closed    string `json:"Closed"`
-	Sequence  string `json:"@sequence"`
-	URL       string `json:"@url"`
+	Code     string `json:"Code"`
+	Comment  string `json:"pdComment"`
+	PDType   string `json:"PDType"`
+	NetDays  string `json:"pdays"`
+	Closed   string `json:"Closed"`
+	Sequence string `json:"@sequence"`
+	URL      string `json:"@url"`
 }
 
 // Department represents a department entry (register DepVc).
@@ -233,8 +240,8 @@ type PurchaseInvoice struct {
 	VECode     string `json:"VECode"`
 	VEName     string `json:"VEName"`
 	DueDate    string `json:"DueDate"`
-	PayVal     string `json:"PayVal"`  // Total incl VAT
-	VATVal     string `json:"VATVal"`  // VAT amount
+	PayVal     string `json:"PayVal"` // Total incl VAT
+	VATVal     string `json:"VATVal"` // VAT amount
 	CurncyCode string `json:"CurncyCode"`
 	OKFlag     string `json:"OKFlag"`
 	InvoiceNr  string `json:"InvoiceNr"`
@@ -243,4 +250,40 @@ type PurchaseInvoice struct {
 	TransDate  string `json:"TransDate"`
 	Sequence   string `json:"@sequence"`
 	URL        string `json:"@url"`
+}
+
+// FlexString decodes a JSON string, number or boolean into its text, and null
+// into "". Used for fields whose JSON type Excellent Books has not been seen to
+// send yet, so that an unexpected type cannot fail the decode of the record
+// carrying it.
+type FlexString string
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (f *FlexString) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		*f = FlexString(s)
+		return nil
+	}
+	var v any
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	switch x := v.(type) {
+	case nil:
+		*f = ""
+	case bool:
+		if x {
+			*f = "1"
+		} else {
+			*f = "0"
+		}
+	case float64:
+		*f = FlexString(string(bytes.TrimSpace(b)))
+	default:
+		// An object or an array is not a scalar field; keep its text so it is
+		// visible rather than silently empty.
+		*f = FlexString(string(bytes.TrimSpace(b)))
+	}
+	return nil
 }

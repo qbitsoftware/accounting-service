@@ -79,12 +79,17 @@ func (e *APIError) Error() string {
 
 // ListParams specifies common query parameters for GET requests.
 type ListParams struct {
-	Fields       string            // Comma-separated field list
+	Fields       string // Comma-separated field list
 	Limit        int
 	Offset       int
 	Sort         string
 	Range        string
-	UpdatesAfter string            // Sequence value for incremental sync
+	UpdatesAfter string // Sequence value for incremental sync
+	// DeletesAfter asks for the records deleted after a sequence
+	// (deletes_after). Like UpdatesAfter it only works on a register with a
+	// synchronisation index, and the shape of the answer is undocumented — read
+	// it through ListDeletedReceipts, never as a list of live records.
+	DeletesAfter string
 	Filter       map[string]string // Exact-match filters: {"RefStr": "ORD-001"}
 }
 
@@ -107,6 +112,9 @@ func (p ListParams) toValues() url.Values {
 	}
 	if p.UpdatesAfter != "" {
 		v.Set("updates_after", p.UpdatesAfter)
+	}
+	if p.DeletesAfter != "" {
+		v.Set("deletes_after", p.DeletesAfter)
 	}
 	for field, val := range p.Filter {
 		v.Set("filter."+field, val)
@@ -170,6 +178,26 @@ func (c *Client) getOne(ctx context.Context, register string, id string) (*Respo
 
 // post performs a POST request with form-encoded body.
 func (c *Client) post(ctx context.Context, register string, fields map[string]string) (*Response, error) {
+	req, err := c.newPost(ctx, register, fields)
+	if err != nil {
+		return nil, err
+	}
+	return c.doRequest(req)
+}
+
+// postLenient is post for a write whose success must not hinge on decoding the
+// answer: a 2xx without an error payload is success even when its body is not
+// JSON, and comes back as an empty Response. The record was written all the
+// same, so reporting a failure would invite the caller to write it twice.
+func (c *Client) postLenient(ctx context.Context, register string, fields map[string]string) (*Response, error) {
+	req, err := c.newPost(ctx, register, fields)
+	if err != nil {
+		return nil, err
+	}
+	return c.doRequestMode(req, true)
+}
+
+func (c *Client) newPost(ctx context.Context, register string, fields map[string]string) (*http.Request, error) {
 	reqURL := fmt.Sprintf("%s/api/%s/%s", c.baseURL, c.companyCode, register)
 
 	slog.Info("excellentbooks request", "method", "POST", "register", register, "fields", len(fields))
@@ -187,8 +215,26 @@ func (c *Client) post(ctx context.Context, register string, fields map[string]st
 	// causing "code not in use" errors for Estonian-named items / customers).
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
 	req.Header.Set("Accept", "application/json")
+	return req, nil
+}
 
-	return c.doRequest(req)
+// deleteOne performs a DELETE of one record by id. Used only by diagnostics
+// (cmd/eb-onewriter-probe asks whether a draft receipt can be deleted); no
+// adapter method deletes anything in Excellent Books.
+func (c *Client) deleteOne(ctx context.Context, register string, id string) (*Response, error) {
+	// PathEscape — see getOne for rationale.
+	reqURL := fmt.Sprintf("%s/api/%s/%s/%s", c.baseURL, c.companyCode, register, url.PathEscape(id))
+
+	slog.Info("excellentbooks request", "method", "DELETE", "register", register, "id", id)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("excellentbooks: create request: %w", err)
+	}
+	req.SetBasicAuth(c.username, c.password)
+	req.Header.Set("Accept", "application/json")
+
+	return c.doRequestMode(req, true)
 }
 
 // patch performs a PATCH request with form-encoded body.
@@ -215,6 +261,13 @@ func (c *Client) patch(ctx context.Context, register string, id string, fields m
 
 // doRequest executes the HTTP request and parses the response.
 func (c *Client) doRequest(req *http.Request) (*Response, error) {
+	return c.doRequestMode(req, req.Method == http.MethodPatch)
+}
+
+// doRequestMode is doRequest with the malformed-2xx tolerance chosen by the
+// caller. lenient is what PATCH has always had: a 2xx answer without an error
+// payload whose body does not parse is the write's success, not its failure.
+func (c *Client) doRequestMode(req *http.Request, lenient bool) (*Response, error) {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("excellentbooks: send request: %w", err)
@@ -280,7 +333,7 @@ func (c *Client) doRequest(req *http.Request) (*Response, error) {
 		// succeeded — status is 2xx and there's no error payload (checked
 		// above). Don't fail the operation; downstream callers that try to
 		// parse the body will get empty data and can handle it.
-		if req.Method == http.MethodPatch {
+		if lenient {
 			// Before giving up and treating as success, scan the raw body
 			// for the nested-error shape EB sometimes returns on PATCH
 			// rejections: `{"data":{"messages":[...],"error":{"@code":"1256","@field":"PayDeal"}}}`
@@ -290,7 +343,7 @@ func (c *Client) doRequest(req *http.Request) (*Response, error) {
 			// errors get logged as "treating as success" and callers have
 			// no idea their write was rejected.
 			if errCode, errField, errMsg := extractNestedPATCHError(body); errCode != "" {
-				slog.Warn("excellentbooks: PATCH rejected with nested-error payload",
+				slog.Warn("excellentbooks: "+req.Method+" rejected with nested-error payload",
 					"method", req.Method,
 					"url", req.URL.String(),
 					"error_code", errCode,
@@ -310,7 +363,7 @@ func (c *Client) doRequest(req *http.Request) (*Response, error) {
 			if len(rawSnippet) > 500 {
 				rawSnippet = rawSnippet[:500] + "...(truncated)"
 			}
-			slog.Warn("excellentbooks: PATCH succeeded but response body was malformed; treating as success",
+			slog.Warn("excellentbooks: "+req.Method+" succeeded but response body was malformed; treating as success",
 				"method", req.Method,
 				"url", req.URL.String(),
 				"body_len", len(body),
