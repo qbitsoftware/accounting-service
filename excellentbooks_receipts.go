@@ -373,10 +373,11 @@ func ebReceiptTouches(r excellentbooks.Receipt, customerID, invoiceID string) bo
 // With SinceSequence it reads updates_after=SinceSequence instead, paging by
 // the last record's @sequence, whatever the receipts' dates. A refusal — an
 // error payload, or a 4xx other than 401/403/408/429 — and an answer that
-// shows the parameter was not applied (a record below the cursor, a full page
-// that does not advance it) are ErrChangeFeedUnsupported; a transport error or
-// a 5xx is an ordinary error. Sequence is the last page's data@sequence (else
-// the last record's @sequence, else SinceSequence itself).
+// shows the parameter was not applied (a record without a numeric @sequence,
+// one below the cursor, a page not in strictly ascending @sequence order, a
+// full page that does not advance it) are ErrChangeFeedUnsupported; a
+// transport error or a 5xx is an ordinary error. Sequence is the last page's
+// data@sequence (else the last record's @sequence, else SinceSequence itself).
 //
 // WithDeletions (only with SinceSequence) also reads deletes_after, whose
 // answer is undocumented. Its SerNrs reach Deleted only when the answer proves
@@ -507,6 +508,13 @@ func (p *excellentProvider) readReceiptWindowOnce(ctx context.Context, rng strin
 // readReceiptFeed reads updates_after=since to its end, paging by the last
 // record's @sequence (the answer is ordered by sequence, and a receipt changed
 // while the read runs moves to its end, so it is read rather than skipped).
+//
+// Paging by the last record is only safe while that order holds, and nothing
+// documents what Excellent Books does if it does not: a page answered newest
+// first, or by SerNr, would move the cursor past receipts it never returned
+// and they would be skipped for good. So every page is checked before any of
+// it is used (ebFeedPageDisorder), and a page out of order is refused as
+// ErrChangeFeedUnsupported rather than read.
 func (p *excellentProvider) readReceiptFeed(ctx context.Context, op, since string) ([]excellentbooks.Receipt, string, error) {
 	size := p.receiptPageSize()
 	var out []excellentbooks.Receipt
@@ -524,23 +532,20 @@ func (p *excellentProvider) readReceiptFeed(ctx context.Context, op, since strin
 			}
 			return nil, "", p.wrapError(op, err)
 		}
+		if why := ebFeedPageDisorder(recs, cursor); why != "" {
+			return nil, "", p.feedNotApplied(op, "updates_after=%s answered %s", cursor, why)
+		}
 		for _, r := range recs {
-			if seqBefore(r.Sequence, cursor) {
-				return nil, "", p.feedNotApplied(op, "updates_after=%s answered receipt %s at sequence %s, below the cursor", cursor, r.SerNr, r.Sequence)
-			}
 			out = ebAddReceipt(out, index, r)
-			if r.Sequence != "" {
-				lastRecSeq = r.Sequence
-			}
+		}
+		if len(recs) > 0 {
+			lastRecSeq = recs[len(recs)-1].Sequence
 		}
 		lastDataSeq = dataSeq
 		if len(recs) < size {
 			break
 		}
 		last := recs[len(recs)-1].Sequence
-		if last == "" {
-			return nil, "", p.feedNotApplied(op, "updates_after=%s answered a full page whose last receipt carries no @sequence", cursor)
-		}
 		if !seqAfter(last, cursor) {
 			return nil, "", p.feedNotApplied(op, "updates_after=%s answered a full page ending at sequence %s, which does not advance it", cursor, last)
 		}
@@ -554,6 +559,31 @@ func (p *excellentProvider) readReceiptFeed(ctx context.Context, op, since strin
 		seq = since
 	}
 	return out, seq, nil
+}
+
+// ebFeedPageDisorder says why one updates_after page cannot be paged by its
+// last record's @sequence, or "" when it can. That needs every record to carry
+// a numeric @sequence, none below the cursor, in strictly ascending order: a
+// record out of that order means receipts sequenced between two of the page's
+// own may sit beyond the page and behind the next cursor, so the page proves
+// the parameter is not honoured as documented.
+func ebFeedPageDisorder(recs []excellentbooks.Receipt, cursor string) string {
+	var prev uint64
+	prevSerNr, prevSeq := "", ""
+	for i, r := range recs {
+		n, ok := parseSeq(r.Sequence)
+		if !ok {
+			return fmt.Sprintf("receipt %s with @sequence %q, which is not a number", r.SerNr, r.Sequence)
+		}
+		if seqBefore(r.Sequence, cursor) {
+			return fmt.Sprintf("receipt %s at sequence %s, below the cursor", r.SerNr, r.Sequence)
+		}
+		if i > 0 && n <= prev {
+			return fmt.Sprintf("receipt %s at sequence %s after receipt %s at sequence %s, not in ascending order", r.SerNr, r.Sequence, prevSerNr, prevSeq)
+		}
+		prev, prevSerNr, prevSeq = n, r.SerNr, r.Sequence
+	}
+	return ""
 }
 
 func (p *excellentProvider) feedNotApplied(op, format string, args ...any) error {
@@ -606,7 +636,13 @@ func (p *excellentProvider) readDeletedReceipts(ctx context.Context, op, since s
 
 // ebFeedRefused reports whether err is Excellent Books refusing a request (an
 // error payload on a 2xx, or a 4xx that is not about credentials, timing or
-// rate) rather than failing to answer it.
+// rate) rather than failing to answer it. 401/403/408/429 and every 5xx are
+// failures to answer, never a refusal.
+//
+// Ask it only of an updates_after or deletes_after request: an error payload
+// on a 2xx says the register would not take that parameter. On any other read
+// the same payload is an ordinary error, which is why the date-window reads
+// go through wrapError and never through here.
 func ebFeedRefused(err error) bool {
 	var apiErr *excellentbooks.APIError
 	if !errors.As(err, &apiErr) {

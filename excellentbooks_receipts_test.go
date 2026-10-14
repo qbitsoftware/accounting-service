@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -555,8 +556,12 @@ func TestEBListPaymentChangesFeedRefusalVsFailure(t *testing.T) {
 		{"400", 400, `{"error":{"@code":"1","@description":"updates_after not allowed"}}`, true},
 		{"404", 404, `Not Found`, true},
 		{"500", 500, `boom`, false},
+		{"502", 502, `bad gateway`, false},
 		{"503", 503, `busy`, false},
+		{"500 with an error payload", 500, `{"error":{"@code":"1","@description":"internal"}}`, false},
 		{"401", 401, `no`, false},
+		{"403", 403, `{"error":{"@code":"1","@description":"forbidden"}}`, false},
+		{"408", 408, `timeout`, false},
 		{"429", 429, `slow down`, false},
 	}
 	for _, c := range cases {
@@ -640,6 +645,113 @@ func TestEBListPaymentChangesFeedNotAdvancing(t *testing.T) {
 	if _, err := p.ListPaymentChanges(ebCtx, PaymentChangesInput{SinceSequence: "100"}); !errors.Is(err, ErrChangeFeedUnsupported) {
 		t.Fatalf("err = %v, want ErrChangeFeedUnsupported", err)
 	}
+}
+
+// The feed pages by the last record's @sequence, which skips nothing only
+// while every page is in ascending order. A register answering in any other
+// order moves the cursor past receipts it never returned — newest first, the
+// first page ends at 104 and 101..103 are never read; by SerNr it ends at 105
+// and 102..104 are never read — so a page out of order is refused, not read.
+func TestEBListPaymentChangesFeedOutOfOrder(t *testing.T) {
+	type rec struct {
+		ser string
+		seq int
+	}
+	all := []rec{{"1", 101}, {"2", 106}, {"3", 105}, {"4", 102}, {"5", 103}, {"6", 104}}
+	cases := []struct {
+		name string
+		less func(a, b rec) bool
+	}{
+		{"newest first", func(a, b rec) bool { return a.seq > b.seq }},
+		{"by SerNr", func(a, b rec) bool { return a.ser < b.ser }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p, _ := newEBFake(t, func(n int, w ebWire) (int, string) {
+				q, _ := url.ParseQuery(w.Query)
+				after, _ := strconv.Atoi(q.Get("updates_after"))
+				limit, _ := strconv.Atoi(q.Get("limit"))
+				var due []rec
+				for _, r := range all {
+					if r.seq > after {
+						due = append(due, r)
+					}
+				}
+				sort.SliceStable(due, func(i, j int) bool { return c.less(due[i], due[j]) })
+				var page []string
+				for _, r := range due {
+					if len(page) == limit {
+						break
+					}
+					page = append(page, ebRec(r.ser, "2026-09-01", strconv.Itoa(r.seq), "1", ebInvRow("26"+r.ser, "K1", "1")))
+				}
+				return 200, ebPage(strconv.Itoa(200+n), page...)
+			})
+			p.pageSize = 3
+			got, err := p.ListPaymentChanges(ebCtx, PaymentChangesInput{SinceSequence: "100"})
+			if !errors.Is(err, ErrChangeFeedUnsupported) || got != nil {
+				ids := ""
+				if got != nil {
+					ids = receiptIDs(got.Receipts)
+				}
+				t.Fatalf("ListPaymentChanges = [%s], %v; want ErrChangeFeedUnsupported and nothing", ids, err)
+			}
+		})
+	}
+}
+
+// A record whose @sequence is not a number cannot be placed in the order the
+// cursor relies on, wherever it sits on the page.
+func TestEBListPaymentChangesFeedNonNumericSequence(t *testing.T) {
+	for _, seq := range []string{"", "abc", "1e3", "-5"} {
+		t.Run(fmt.Sprintf("%q", seq), func(t *testing.T) {
+			p, _ := newEBFake(t, func(int, ebWire) (int, string) {
+				return 200, ebPage("130",
+					ebRec("1", "2026-09-01", "110", "1", ebInvRow("1", "K1", "1")),
+					ebRec("2", "2026-09-01", seq, "1", ebInvRow("2", "K1", "1")),
+					ebRec("3", "2026-09-01", "120", "1", ebInvRow("3", "K1", "1")))
+			})
+			if got, err := p.ListPaymentChanges(ebCtx, PaymentChangesInput{SinceSequence: "100"}); !errors.Is(err, ErrChangeFeedUnsupported) || got != nil {
+				ids := ""
+				if got != nil {
+					ids = receiptIDs(got.Receipts)
+				}
+				t.Fatalf("ListPaymentChanges = [%s], %v; want ErrChangeFeedUnsupported and nothing", ids, err)
+			}
+		})
+	}
+}
+
+// An error payload on a 2xx is a refusal of updates_after only on the request
+// that carried it; the same answer to a date-window read is an ordinary error.
+func TestEBErrorPayloadIsARefusalOnlyOnTheFeed(t *testing.T) {
+	const refused = `{"error":{"@code":"1857","@description":"Register has no synchronisation index"}}`
+	answer := func(int, ebWire) (int, string) { return 200, refused }
+
+	p, f := newEBFake(t, answer)
+	_, err := p.ListPaymentChanges(ebCtx, PaymentChangesInput{Since: ebDay(2026, 9, 1)})
+	if err == nil || errors.Is(err, ErrChangeFeedUnsupported) {
+		t.Fatalf("window: err = %v, want an ordinary error", err)
+	}
+	assertEBWire(t, f, `GET IPVc?limit=500&range=2026-09-01%3A&sort=TransDate`)
+
+	p, f = newEBFake(t, answer)
+	_, err = p.ListInvoiceReceipts(ebCtx, ListInvoiceReceiptsInput{CustomerID: "K1", Since: ebDay(2026, 9, 1)})
+	if err == nil || errors.Is(err, ErrChangeFeedUnsupported) {
+		t.Fatalf("invoice receipts: err = %v, want an ordinary error", err)
+	}
+	for _, w := range f.wire() {
+		if strings.Contains(w.Query, "updates_after") {
+			t.Fatalf("invoice receipts sent updates_after: %s", w)
+		}
+	}
+
+	p, f = newEBFake(t, answer)
+	_, err = p.ListPaymentChanges(ebCtx, PaymentChangesInput{SinceSequence: "5100"})
+	if !errors.Is(err, ErrChangeFeedUnsupported) {
+		t.Fatalf("feed: err = %v, want ErrChangeFeedUnsupported", err)
+	}
+	assertEBWire(t, f, `GET IPVc?limit=500&updates_after=5100`)
 }
 
 func TestEBListPaymentChangesFeedSequenceFallbacks(t *testing.T) {
