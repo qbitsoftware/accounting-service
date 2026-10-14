@@ -2,6 +2,7 @@ package accounting
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -157,6 +158,21 @@ type Receipt struct {
 	// read. Such a receipt must never be treated as money; it is returned so the
 	// caller can report it rather than lose it.
 	DecodeError string
+
+	// The fields below are set by Excellent Books only (eb-receipts); every
+	// other provider leaves them zero, so nothing that reads them changes for
+	// Merit or SmartAccounts.
+
+	// Draft is true for a receipt the provider holds but has not confirmed
+	// (Excellent Books OKFlag != 1). It is not in the books yet: never money,
+	// never held, and it may still be deleted.
+	Draft bool
+	// Void is true for a receipt the provider marks invalidated. It counts as
+	// absent.
+	Void bool
+	// Sequence is the provider's change sequence of this record (Excellent
+	// Books @sequence), "" when the provider has none.
+	Sequence string
 }
 
 // CreatedThroughAPI reports whether the provider says the receipt was made
@@ -206,6 +222,11 @@ type PaymentChanges struct {
 	// deleted list complete. The caller may act on an id IN Deleted; it must not
 	// act on an id's ABSENCE from Deleted unless this is true.
 	DeletedComplete bool
+
+	// Sequence is the cursor to send as PaymentChangesInput.SinceSequence next
+	// time (Excellent Books: the response's data@sequence). "" when the read
+	// was not sequence-based. Store it only after the whole read was acted on.
+	Sequence string
 }
 
 // saRowClientInvoice mirrors smartaccounts.RowClientInvoice; receipts are a
@@ -214,6 +235,34 @@ const saRowClientInvoice = "CLIENT_INVOICE"
 
 // saCreatedByAPI mirrors smartaccounts.CreatedByAPI.
 const saCreatedByAPI = "api"
+
+// ReceiptReverser undoes a confirmed receipt by booking its negative copy —
+// for a provider that cannot delete a confirmed receipt (Excellent Books: "a
+// confirmed receipt cannot be changed; copy it, put a minus sign in front of the
+// received amount, confirm and save"). The original stays in the books; the
+// pair nets to zero. The returned CreatedReceipt is the REVERSAL, not the
+// original.
+type ReceiptReverser interface {
+	ReverseReceipt(ctx context.Context, input ReverseReceiptInput) (*CreatedReceipt, error)
+}
+
+// ReverseReceiptInput names the receipt to reverse.
+type ReverseReceiptInput struct {
+	// ID is the provider's id of the receipt to reverse (Excellent Books SerNr).
+	ID string
+	// Date is the reversal's own date. Zero ⇒ the original's date.
+	Date time.Time
+	// Document is written where the provider keeps the caller's tag (Excellent
+	// Books: the header Comment), so the caller can recognise the reversal as
+	// its own. Empty ⇒ not sent.
+	Document string
+}
+
+// ErrChangeFeedUnsupported is returned by ListPaymentChanges when the caller
+// asked for a sequence-based read (SinceSequence) and the provider refused it
+// — Excellent Books answers updates_after only on registers with a
+// synchronisation index. The caller falls back to a date window.
+var ErrChangeFeedUnsupported = errors.New("change feed unsupported for this register")
 
 // --- Service wrappers ---
 
@@ -259,6 +308,23 @@ func (s *PaymentService) GetReceipt(ctx context.Context, id string) (*Receipt, e
 		return nil, &ProviderError{Provider: s.providerName, Op: "GetReceipt", Err: ErrUnsupportedProvider}
 	}
 	return g.GetReceipt(ctx, id)
+}
+
+// SupportsReceiptReverse reports whether the provider undoes receipts by a
+// negative copy (ReceiptReverser).
+func (s *PaymentService) SupportsReceiptReverse() bool {
+	_, ok := s.provider.(ReceiptReverser)
+	return ok
+}
+
+// ReverseReceipt books the negative copy of a confirmed receipt.
+// ErrUnsupportedProvider when the provider lacks it.
+func (s *PaymentService) ReverseReceipt(ctx context.Context, input ReverseReceiptInput) (*CreatedReceipt, error) {
+	r, ok := s.provider.(ReceiptReverser)
+	if !ok {
+		return nil, &ProviderError{Provider: s.providerName, Op: "ReverseReceipt", Err: ErrUnsupportedProvider}
+	}
+	return r.ReverseReceipt(ctx, input)
 }
 
 // SupportsPaymentChanges reports whether the provider has a receipt-level

@@ -220,6 +220,15 @@ type PaymentChangesInput struct {
 	// ClientsOnly restricts the read to customer receipts. Only to be set once
 	// it is known not to narrow the deleted list as well (SANDBOX item 5).
 	ClientsOnly bool
+
+	// SinceSequence, when set, reads by change sequence instead of the date
+	// window (Excellent Books updates_after): every receipt saved or changed
+	// after it, whatever its date. A provider that refuses answers
+	// ErrChangeFeedUnsupported. Ignored by SmartAccounts.
+	SinceSequence string
+	// WithDeletions also asks for the receipts deleted after SinceSequence
+	// (Excellent Books deletes_after). Only meaningful with SinceSequence.
+	WithDeletions bool
 }
 
 type ListInvoicesInput struct {
