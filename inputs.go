@@ -152,9 +152,11 @@ type CreatePaymentInput struct {
 	// An unconfirmed receipt does not settle its invoice.
 	AutoConfirm bool
 
-	// The fields below are read only by SmartAccounts' CreateReceipt (v0.15.0).
-	// Every other adapter, and SmartAccounts' own CreatePayment, ignores them, so
-	// a caller that never sets them sends exactly what it sent before.
+	// The fields below are read only by CreateReceipt — SmartAccounts' (v0.15.0)
+	// and Excellent Books' (eb-receipts; Document → header Comment, Comment →
+	// row Comment, AccountKind not read). Every other adapter, and every
+	// CreatePayment, ignores them, so a caller that never sets them sends
+	// exactly what it sent before.
 
 	// AccountKind books the receipt into a cash desk instead of a bank account
 	// (SmartAccounts accountType=CASH; BankID then names the cash desk). Zero is

@@ -105,8 +105,10 @@ type ApplyPrepaymentInput struct {
 	PaymentDate  time.Time
 	BankID       string
 	// Document is written to the application's document field so the caller
-	// can later recognise the application as its own. SmartAccounts only; empty
-	// ⇒ not sent, which is the request every caller sent before v0.15.0.
+	// can later recognise the application as its own: SmartAccounts (both
+	// ApplyPrepayment and ApplyPrepaymentReceipt) and Excellent Books'
+	// ApplyPrepaymentReceipt (header Comment; its ApplyPrepayment ignores it).
+	// Empty ⇒ not sent, which is the request every caller sent before v0.15.0.
 	Document string
 }
 

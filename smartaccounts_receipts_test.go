@@ -497,8 +497,13 @@ func TestReceiptTouchesOnly(t *testing.T) {
 	}
 }
 
-func TestOptionalReceiptInterfacesSmartAccountsOnly(t *testing.T) {
-	check := func(name string, p any, want bool) {
+func TestOptionalReceiptInterfacesPerProvider(t *testing.T) {
+	// The optional receipt interfaces each provider implements, by name. A
+	// provider gaining one changes what a caller that type-asserts may do with
+	// it, so the set is pinned per provider rather than inferred.
+	names := []string{"ReceiptCreator", "InvoiceReceiptLister", "ReceiptGetter", "PaymentChangeLister",
+		"CashAccountLister", "BudgetReporter", "NettingBankLister", "PrepaymentReceiptApplier", "ReceiptReverser"}
+	check := func(name string, p any, want ...string) {
 		t.Helper()
 		_, a := p.(ReceiptCreator)
 		_, b := p.(InvoiceReceiptLister)
@@ -508,17 +513,26 @@ func TestOptionalReceiptInterfacesSmartAccountsOnly(t *testing.T) {
 		_, h := p.(BudgetReporter)
 		_, n := p.(NettingBankLister)
 		_, ra := p.(PrepaymentReceiptApplier)
-		for i, ok := range []bool{a, b, c, e, g, h, n, ra} {
-			if ok != want {
-				t.Errorf("%s: interface #%d implemented=%v, want %v", name, i, ok, want)
+		_, rv := p.(ReceiptReverser)
+		wanted := map[string]bool{}
+		for _, w := range want {
+			wanted[w] = true
+		}
+		for i, ok := range []bool{a, b, c, e, g, h, n, ra, rv} {
+			if ok != wanted[names[i]] {
+				t.Errorf("%s: %s implemented=%v, want %v", name, names[i], ok, wanted[names[i]])
 			}
 		}
 	}
-	check("smartaccounts", (*smartProvider)(nil), true)
-	check("merit", (*meritProvider)(nil), false)
-	check("excellentbooks", (*excellentProvider)(nil), false)
-	check("simplbooks", (*simplbooksProvider)(nil), false)
-	check("directo", (*directoProvider)(nil), false)
+	check("smartaccounts", (*smartProvider)(nil), "ReceiptCreator", "InvoiceReceiptLister", "ReceiptGetter",
+		"PaymentChangeLister", "CashAccountLister", "BudgetReporter", "NettingBankLister", "PrepaymentReceiptApplier")
+	// Excellent Books (eb-receipts): no cash-desk register, no netting bank and
+	// no request budget; the only provider that undoes a receipt by reversal.
+	check("excellentbooks", (*excellentProvider)(nil), "ReceiptCreator", "InvoiceReceiptLister", "ReceiptGetter",
+		"PaymentChangeLister", "PrepaymentReceiptApplier", "ReceiptReverser")
+	check("merit", (*meritProvider)(nil))
+	check("simplbooks", (*simplbooksProvider)(nil))
+	check("directo", (*directoProvider)(nil))
 
 	// A provider without them is refused, never served by the old method.
 	c, err := NewClient(Config{Provider: "merit", APIID: "x", APIKey: "y"})

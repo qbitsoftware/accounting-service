@@ -67,6 +67,13 @@ func (p *excellentProvider) ApplyPrepayment(ctx context.Context, input ApplyPrep
 		return p.wrapError("ApplyPrepayment", fmt.Errorf("InvoiceNo and PrepaymentNo are required"))
 	}
 
+	_, err := p.client.CreateReceipt(ctx, excellentApplyFields(input))
+	return p.wrapError("ApplyPrepayment", err)
+}
+
+// excellentApplyFields is ApplyPrepayment's request. ApplyPrepaymentReceipt
+// sends the same fields plus the header Comment, so the two cannot drift apart.
+func excellentApplyFields(input ApplyPrepaymentInput) map[string]string {
 	date := formatExcellentDate(input.PaymentDate)
 	fields := map[string]string{
 		"set_field.TransDate": date,
@@ -88,9 +95,7 @@ func (p *excellentProvider) ApplyPrepayment(ctx context.Context, input ApplyPrep
 	if input.Currency != "" {
 		fields["set_field.PayCurCode"] = input.Currency
 	}
-
-	_, err := p.client.CreateReceipt(ctx, fields)
-	return p.wrapError("ApplyPrepayment", err)
+	return fields
 }
 
 // UnallocateToPrepayment frees a paid amount off an invoice into a new

@@ -18,8 +18,11 @@ import (
 // does not implement them — and a caller asking anyway gets
 // ErrUnsupportedProvider, never a silent fallback to the old behaviour.
 //
-// SmartAccounts implements all of them. Nothing here changes what any existing
-// method sends.
+// SmartAccounts implements all of them except ReceiptReverser. Excellent Books
+// implements ReceiptCreator, PrepaymentReceiptApplier, InvoiceReceiptLister,
+// ReceiptGetter, PaymentChangeLister and ReceiptReverser
+// (excellentbooks_receipts.go). Nothing here changes what any existing method
+// sends.
 
 // ReceiptCreator books a receipt and returns what the provider made of it.
 type ReceiptCreator interface {

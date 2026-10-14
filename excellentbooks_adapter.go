@@ -18,6 +18,9 @@ const excellentDateFormat = "2006-01-02"
 // excellentProvider implements Provider using the Excellent Books API.
 type excellentProvider struct {
 	client *excellentbooks.Client
+	// pageSize overrides the page every paged receipt read asks for (0 ⇒ 500).
+	// Tests only.
+	pageSize int
 }
 
 func newExcellentProvider(cfg Config) *excellentProvider {
@@ -304,6 +307,13 @@ func (p *excellentProvider) CreatePayment(ctx context.Context, input CreatePayme
 	if input.BankID == "" {
 		return p.wrapError("CreatePayment", fmt.Errorf("PayMode (BankID) is required for Excellent Books receipts"))
 	}
+	_, err := p.client.CreateReceipt(ctx, excellentPaymentFields(input))
+	return p.wrapError("CreatePayment", err)
+}
+
+// excellentPaymentFields is CreatePayment's request. CreateReceipt sends the
+// same fields plus its own, so the two cannot drift apart.
+func excellentPaymentFields(input CreatePaymentInput) map[string]string {
 	fields := map[string]string{
 		"set_field.TransDate": formatExcellentDate(input.PaymentDate),
 		"set_field.OKFlag":    "1",
@@ -326,9 +336,7 @@ func (p *excellentProvider) CreatePayment(ctx context.Context, input CreatePayme
 		fields["set_row_field.0.RecVal"] = input.Amount.String()
 	}
 	fields["set_row_field.0.PayDate"] = formatExcellentDate(input.PaymentDate)
-
-	_, err := p.client.CreateReceipt(ctx, fields)
-	return p.wrapError("CreatePayment", err)
+	return fields
 }
 
 func (p *excellentProvider) ListPayments(ctx context.Context, input ListPaymentsInput) ([]Payment, error) {
@@ -348,24 +356,30 @@ func (p *excellentProvider) ListPayments(ctx context.Context, input ListPayments
 
 	payments := make([]Payment, len(receipts))
 	for i, r := range receipts {
-		amount := decimal.Zero
-		for _, row := range r.Rows {
-			rowAmt, _ := decimal.NewFromString(row.RecVal)
-			amount = amount.Add(rowAmt)
-		}
-		links := excellentReceiptInvoiceLinks(r.Rows)
-		payments[i] = Payment{
-			ID:              r.SerNr,
-			DocumentNo:      r.SerNr,
-			DocumentDate:    parseExcellentDate(r.TransDate),
-			Amount:          amount,
-			Currency:        r.PayCurCode,
-			Direction:       PaymentDirectionCustomer,
-			InvoiceLinks:    links,
-			ExternalPayMode: r.PayMode,
-		}
+		payments[i] = mapExcellentPayment(r)
 	}
 	return payments, nil
+}
+
+// mapExcellentPayment is ListPayments' projection of one receipt: every row's
+// RecVal summed (extra rows included), and the invoice rows as links. Shared
+// with ListPaymentChanges, whose Payments must be this projection exactly.
+func mapExcellentPayment(r excellentbooks.Receipt) Payment {
+	amount := decimal.Zero
+	for _, row := range r.Rows {
+		rowAmt, _ := decimal.NewFromString(row.RecVal)
+		amount = amount.Add(rowAmt)
+	}
+	return Payment{
+		ID:              r.SerNr,
+		DocumentNo:      r.SerNr,
+		DocumentDate:    parseExcellentDate(r.TransDate),
+		Amount:          amount,
+		Currency:        r.PayCurCode,
+		Direction:       PaymentDirectionCustomer,
+		InvoiceLinks:    excellentReceiptInvoiceLinks(r.Rows),
+		ExternalPayMode: r.PayMode,
+	}
 }
 
 func (p *excellentProvider) DeletePayment(_ context.Context, _ string) error {
@@ -522,7 +536,7 @@ func (p *excellentProvider) CreateCreditNote(ctx context.Context, input CreateCr
 		fields[prefix+".stp"] = "1"
 		fields[prefix+".ArtCode"] = line.Code
 		fields[prefix+".Quant"] = line.Quantity.Neg().String() // credit-note -1 → original +1
-		fields[prefix+".Price"] = line.UnitPrice.String()       // already the original line price
+		fields[prefix+".Price"] = line.UnitPrice.String()      // already the original line price
 		if line.TaxID != "" {
 			fields[prefix+".VATCode"] = line.TaxID
 		}
