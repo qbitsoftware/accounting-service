@@ -122,18 +122,53 @@ func (p ListParams) toValues() url.Values {
 	return v
 }
 
-// encodeForm builds the form body using url.Values.Encode but then converts
-// "+" to "%20" for spaces. Standard Books' API parser doesn't decode "+" as
-// space (it stores the literal "+" in the field), even though "+" is valid per
-// RFC 3986 application/x-www-form-urlencoded. "%20" is universally accepted
-// and round-trips correctly. Any literal "+" in user input is already
-// percent-encoded as "%2B" by url.Values.Encode, so this replacement is safe.
+// headerComment is the record's header Comment, which Excellent Books fills in
+// itself when another header field changes.
+const headerComment = "set_field.Comment"
+
+// encodeForm builds the form body in url.Values.Encode's order (keys sorted,
+// QueryEscape'd) but converts "+" to "%20" for spaces. Standard Books' API
+// parser doesn't decode "+" as space (it stores the literal "+" in the field),
+// even though "+" is valid per RFC 3986 application/x-www-form-urlencoded.
+// "%20" is universally accepted and round-trips correctly. Any literal "+" in
+// user input is already percent-encoded as "%2B", so this replacement is safe.
+//
+// One key breaks the sort: the header Comment goes after every other header
+// field. Excellent Books applies the fields in the order they are sent, and
+// setting a receipt's PayMode overwrites its Comment with the PayMode's name
+// ("Kassa", "Arveldusarve 2") — observed on the test company 21.10.2026 for any
+// PayMode other than the register's default — so sorted, "Comment" before
+// "PayMode" lost klubio's KLUBIO-PMT- / KLUBIO-REV- tag. A form without a
+// header Comment encodes exactly as it always has.
 func encodeForm(fields map[string]string) string {
-	form := url.Values{}
-	for k, v := range fields {
-		form.Set(k, v)
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		if k != headerComment {
+			keys = append(keys, k)
+		}
 	}
-	return strings.ReplaceAll(form.Encode(), "+", "%20")
+	sort.Strings(keys)
+	if _, ok := fields[headerComment]; ok {
+		// After the last header field (sorted, they are contiguous), else
+		// where the sort would have put it.
+		at := sort.SearchStrings(keys, headerComment)
+		for i, k := range keys {
+			if strings.HasPrefix(k, "set_field.") && i+1 > at {
+				at = i + 1
+			}
+		}
+		keys = append(keys[:at], append([]string{headerComment}, keys[at:]...)...)
+	}
+	var b strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte('&')
+		}
+		b.WriteString(url.QueryEscape(k))
+		b.WriteByte('=')
+		b.WriteString(url.QueryEscape(fields[k]))
+	}
+	return strings.ReplaceAll(b.String(), "+", "%20")
 }
 
 // get performs a GET request and decodes the JSON response.

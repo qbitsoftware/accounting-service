@@ -99,7 +99,7 @@ func TestEBCreateReceiptWire(t *testing.T) {
 		t.Fatalf("CreateReceipt: %v", err)
 	}
 	assertEBWire(t, f,
-		`POST IPVc set_field.Comment=KLUBIO-PMT-2002386&set_field.OKFlag=1&set_field.PayCurCode=EUR&set_field.PayMode=P2&set_field.TransDate=2026-09-03&set_row_field.0.Comment=Makse%202026-0042&set_row_field.0.CustCode=K7224&set_row_field.0.InvoiceNr=260123&set_row_field.0.PayDate=2026-09-03&set_row_field.0.RecVal=25.5&set_row_field.0.stp=1`,
+		`POST IPVc set_field.OKFlag=1&set_field.PayCurCode=EUR&set_field.PayMode=P2&set_field.TransDate=2026-09-03&set_field.Comment=KLUBIO-PMT-2002386&set_row_field.0.Comment=Makse%202026-0042&set_row_field.0.CustCode=K7224&set_row_field.0.InvoiceNr=260123&set_row_field.0.PayDate=2026-09-03&set_row_field.0.RecVal=25.5&set_row_field.0.stp=1`,
 	)
 	if got.ID != "300001" || got.Number != "300001" || !got.Amount.Equal(d("25.5")) || got.InvoiceID != "260123" || got.CustomerID != "K7224" {
 		t.Fatalf("CreatedReceipt = %+v", got)
@@ -243,7 +243,7 @@ func TestEBApplyPrepaymentReceiptWire(t *testing.T) {
 		t.Fatalf("ApplyPrepaymentReceipt without Document: %v", err)
 	}
 	assertEBWire(t, f,
-		`POST IPVc set_field.Comment=KLUBIO-APPLY-77&set_field.OKFlag=1&set_field.PayCurCode=EUR&set_field.PayMode=P2&set_field.TransDate=2026-09-05&set_row_field.0.CustCode=K7224&set_row_field.0.InvoiceNr=260123&set_row_field.0.PayDate=2026-09-05&set_row_field.0.RecVal=20&set_row_field.0.stp=1&set_row_field.1.CUPNr=KLB-PP-3&set_row_field.1.CustCode=K7224&set_row_field.1.PayDate=2026-09-05&set_row_field.1.RecVal=-20&set_row_field.1.stp=1`,
+		`POST IPVc set_field.OKFlag=1&set_field.PayCurCode=EUR&set_field.PayMode=P2&set_field.TransDate=2026-09-05&set_field.Comment=KLUBIO-APPLY-77&set_row_field.0.CustCode=K7224&set_row_field.0.InvoiceNr=260123&set_row_field.0.PayDate=2026-09-05&set_row_field.0.RecVal=20&set_row_field.0.stp=1&set_row_field.1.CUPNr=KLB-PP-3&set_row_field.1.CustCode=K7224&set_row_field.1.PayDate=2026-09-05&set_row_field.1.RecVal=-20&set_row_field.1.stp=1`,
 		// ApplyPrepayment's golden request, byte for byte.
 		`POST IPVc set_field.OKFlag=1&set_field.PayCurCode=EUR&set_field.PayMode=P2&set_field.TransDate=2026-09-05&set_row_field.0.CustCode=K7224&set_row_field.0.InvoiceNr=260123&set_row_field.0.PayDate=2026-09-05&set_row_field.0.RecVal=20&set_row_field.0.stp=1&set_row_field.1.CUPNr=KLB-PP-3&set_row_field.1.CustCode=K7224&set_row_field.1.PayDate=2026-09-05&set_row_field.1.RecVal=-20&set_row_field.1.stp=1`,
 	)
@@ -873,7 +873,7 @@ func TestEBReverseReceiptWire(t *testing.T) {
 	}
 	assertEBWire(t, f,
 		`GET IPVc/1006`,
-		`POST IPVc set_field.Comment=KLUBIO-REV-1006&set_field.OKFlag=1&set_field.Objects=SPORT&set_field.PayCurCode=EUR&set_field.PayMode=P2&set_field.TransDate=2026-10-14`+
+		`POST IPVc set_field.OKFlag=1&set_field.Objects=SPORT&set_field.PayCurCode=EUR&set_field.PayMode=P2&set_field.TransDate=2026-10-14&set_field.Comment=KLUBIO-REV-1006`+
 			`&set_row_field.0.BankVal=-90&set_row_field.0.CustCode=K5&set_row_field.0.InvoiceNr=260105&set_row_field.0.Objects=TREENER&set_row_field.0.PayDate=2026-10-14&set_row_field.0.RecVal=-90&set_row_field.0.stp=1`+
 			`&set_row_field.1.CUPNr=2704&set_row_field.1.CustCode=K5&set_row_field.1.PayDate=2026-10-14&set_row_field.1.RecVal=-30&set_row_field.1.stp=1`+
 			`&set_row_field.2.CustCode=K5&set_row_field.2.PayDate=2026-10-14&set_row_field.2.RecVal=-0.4&set_row_field.2.stp=2`,
@@ -1061,4 +1061,31 @@ func TestEBInvalidOfAnyTypeDecodes(t *testing.T) {
 	if s := strings.Join(flags, " "); s != "1:false:false 2:true:false 3:false:false 4:false:true" {
 		t.Fatalf("void/decode flags = %s", s)
 	}
+}
+
+// The advance receipts klubio writes itself — an overpayment parked, a paid
+// invoice freed before its credit note — can carry klubio's mark in the
+// header Comment, after PayMode like every tagged receipt. Without Document
+// the request is the golden one (TestEBCreatePrepaymentWireGolden,
+// TestEBUnallocateToPrepaymentWireGolden).
+func TestEBPrepaymentDocumentWire(t *testing.T) {
+	p, f := newEBFake(t, func(int, ebWire) (int, string) { return 200, ebCreated("300009") })
+	if _, err := p.CreatePrepayment(ebCtx, CreatePrepaymentInput{
+		CustomerCode: "K7224", PrepaymentNo: "600000001", Amount: d("5"), Currency: "EUR",
+		PaymentDate: ebDay(2026, 10, 21), BankID: "K", Comment: "Overpayment on invoice EBT000002",
+		Document: "KLUBIO-PARK-600000001",
+	}); err != nil {
+		t.Fatalf("CreatePrepayment: %v", err)
+	}
+	if _, err := p.UnallocateToPrepayment(ebCtx, UnallocateToPrepaymentInput{
+		CustomerCode: "K7224", InvoiceNo: "260064", PrepaymentNo: "600000002", Amount: d("55"), Currency: "EUR",
+		PaymentDate: ebDay(2026, 10, 21), BankID: "P", Comment: "Credit of paid invoice EBT000001",
+		Document: "KLUBIO-FREE-600000002",
+	}); err != nil {
+		t.Fatalf("UnallocateToPrepayment: %v", err)
+	}
+	assertEBWire(t, f,
+		`POST IPVc set_field.OKFlag=1&set_field.PayCurCode=EUR&set_field.PayMode=K&set_field.TransDate=2026-10-21&set_field.Comment=KLUBIO-PARK-600000001&set_row_field.0.CUPNr=600000001&set_row_field.0.Comment=Overpayment%20on%20invoice%20EBT000002&set_row_field.0.CustCode=K7224&set_row_field.0.PayDate=2026-10-21&set_row_field.0.RecVal=5&set_row_field.0.stp=1`,
+		`POST IPVc set_field.OKFlag=1&set_field.PayCurCode=EUR&set_field.PayMode=P&set_field.TransDate=2026-10-21&set_field.Comment=KLUBIO-FREE-600000002&set_row_field.0.Comment=Credit%20of%20paid%20invoice%20EBT000001&set_row_field.0.CustCode=K7224&set_row_field.0.InvoiceNr=260064&set_row_field.0.PayDate=2026-10-21&set_row_field.0.RecVal=-55&set_row_field.0.stp=1&set_row_field.1.CUPNr=600000002&set_row_field.1.CustCode=K7224&set_row_field.1.PayDate=2026-10-21&set_row_field.1.RecVal=55&set_row_field.1.stp=1`,
+	)
 }

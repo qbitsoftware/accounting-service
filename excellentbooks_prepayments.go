@@ -42,6 +42,9 @@ func (p *excellentProvider) CreatePrepayment(ctx context.Context, input CreatePr
 	if input.Comment != "" {
 		fields["set_row_field.0.Comment"] = input.Comment
 	}
+	if input.Document != "" {
+		fields["set_field.Comment"] = input.Document
+	}
 
 	if _, err := p.client.CreateReceipt(ctx, fields); err != nil {
 		return nil, p.wrapError("CreatePrepayment", err)
@@ -132,6 +135,9 @@ func (p *excellentProvider) UnallocateToPrepayment(ctx context.Context, input Un
 	}
 	if input.Comment != "" {
 		fields["set_row_field.0.Comment"] = input.Comment
+	}
+	if input.Document != "" {
+		fields["set_field.Comment"] = input.Document
 	}
 
 	if _, err := p.client.CreateReceipt(ctx, fields); err != nil {

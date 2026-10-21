@@ -90,6 +90,11 @@ type CreatePrepaymentInput struct {
 	// prepayment.account, e.g. "21211"). EB/Merit ignore it (they use PayMode/bank).
 	Account string
 	Comment string
+	// Document is Excellent Books' header Comment on the advance receipt, so a
+	// caller can mark the receipt as its own (KLUBIO-PARK-…). Empty ⇒ not sent,
+	// which is the request every caller sent before it existed. Other
+	// providers ignore it.
+	Document string
 	// AccountKind is the kind of account BankID names (SmartAccounts only):
 	// PaymentAccountCash parks the advance in a cash desk (accountType=CASH).
 	// The default sends exactly what was sent before the field existed.
@@ -123,6 +128,9 @@ type UnallocateToPrepaymentInput struct {
 	PaymentDate  time.Time
 	BankID       string
 	Comment      string
+	// Document is Excellent Books' header Comment on the freeing receipt
+	// (KLUBIO-FREE-…), as on CreatePrepaymentInput. Empty ⇒ not sent.
+	Document string
 }
 
 type ListPrepaymentsInput struct {
