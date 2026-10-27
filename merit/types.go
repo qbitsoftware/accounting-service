@@ -749,7 +749,15 @@ type ListPaymentsParams struct {
 }
 
 // PaymentListItem represents a payment in list results.
+//
+// What v2/getpayments actually answers (Merit live, 27.10.2026) differs from
+// the field names this struct was first written with: the id is "PHId", the
+// links to the documents it pays are "Details", and DocumentDate is
+// "2026-09-29T00:00:00". PIHId and PaymAPIDetails are kept so nothing built on
+// them breaks; read the id and the links through ID() and Links(), which
+// prefer what Merit sends.
 type PaymentListItem struct {
+	PHId            string          `json:"PHId"`
 	PIHId           string          `json:"PIHId"`
 	BankName        string          `json:"BankName"`
 	CounterPartType int             `json:"CounterPartType"`
@@ -764,7 +772,25 @@ type PaymentListItem struct {
 	EInvSentDate    string          `json:"EInvSentDate"`
 	DocID           string          `json:"DocId"`
 	ChangedDate     string          `json:"ChangedDate"`
+	Details         []PaymAPIDetail `json:"Details"`
 	PaymAPIDetails  []PaymAPIDetail `json:"PaymAPIDetails"`
+}
+
+// ID is the payment's id: PHId, which is what Merit sends, else PIHId.
+func (p PaymentListItem) ID() string {
+	if p.PHId != "" {
+		return p.PHId
+	}
+	return p.PIHId
+}
+
+// Links are the documents the payment settles: Details, which is what Merit
+// sends, else PaymAPIDetails.
+func (p PaymentListItem) Links() []PaymAPIDetail {
+	if len(p.Details) > 0 {
+		return p.Details
+	}
+	return p.PaymAPIDetails
 }
 
 // PaymAPIDetail contains per-document payment details.

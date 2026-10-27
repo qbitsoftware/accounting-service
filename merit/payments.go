@@ -23,7 +23,7 @@ func (c *Client) ListPayments(ctx context.Context, params ListPaymentsParams) ([
 //
 // Only PeriodStart/PeriodEnd are derived from the range; every other field of
 // params (PaymentType, BankID, DateType) is applied to each call unchanged.
-// Results are deduplicated by PIHId.
+// Results are deduplicated by ID().
 //
 // A failure in one period does not discard the others: the payments that were
 // fetched come back together with a *PartialRangeError naming what was missed.
@@ -38,7 +38,7 @@ func (c *Client) ListPaymentsRange(ctx context.Context, start, end time.Time, pa
 		q.PeriodEnd = FormatDate(p.End)
 		return c.ListPayments(ctx, q)
 	})
-	return dedupeBy(items, func(i PaymentListItem) string { return i.PIHId }), err
+	return dedupeBy(items, func(i PaymentListItem) string { return i.ID() }), err
 }
 
 // CreatePayment creates a payment for a sales invoice.

@@ -231,6 +231,22 @@ func TestRangeDeduplicates(t *testing.T) {
 	}
 }
 
+// Merit sends the payment id as PHId; deduplicating on the PIHId it never
+// fills kept every copy a window boundary returned twice.
+func TestRangeDeduplicatesOnTheIDMeritSends(t *testing.T) {
+	c, _ := stubMerit(t, func(w http.ResponseWriter, _ map[string]any) {
+		_, _ = w.Write([]byte(`[{"PHId":"same","Amount":30.00}]`))
+	})
+	got, err := c.ListPaymentsRange(context.Background(),
+		day(2025, time.August, 25), day(2026, time.August, 25), ListPaymentsParams{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("want 1 payment after dedupe, got %d", len(got))
+	}
+}
+
 func TestRetriesRateLimitAndSucceeds(t *testing.T) {
 	var n int
 	var mu sync.Mutex

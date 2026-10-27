@@ -766,7 +766,7 @@ func mapInvoiceDetail(d *merit.InvoiceDetail) *Invoice {
 	payments := make([]InvoicePayment, len(d.Payments))
 	for i, pm := range d.Payments {
 		payments[i] = InvoicePayment{
-			Date:      parseDate(pm.PaymDate),
+			Date:      parseMeritAnyDate(pm.PaymDate), // "2026-09-27T00:00:00Z", not yyyymmdd
 			Amount:    pm.Amount,
 			Method:    pm.PaymentMethod,
 			PaymentID: pm.PaymentID,
@@ -814,8 +814,9 @@ func mapCustomerListItem(item merit.CustomerListItem) Customer {
 }
 
 func mapPaymentListItem(item merit.PaymentListItem) Payment {
-	links := make([]PaymentInvoiceLink, len(item.PaymAPIDetails))
-	for i, d := range item.PaymAPIDetails {
+	details := item.Links()
+	links := make([]PaymentInvoiceLink, len(details))
+	for i, d := range details {
 		links[i] = PaymentInvoiceLink{
 			InvoiceID: d.DocID,
 			InvoiceNo: d.DocNo,
@@ -824,9 +825,9 @@ func mapPaymentListItem(item merit.PaymentListItem) Payment {
 	}
 
 	return Payment{
-		ID:               item.PIHId,
+		ID:               item.ID(),
 		DocumentNo:       item.DocumentNo,
-		DocumentDate:     parseDate(item.DocumentDate),
+		DocumentDate:     parseMeritAnyDate(item.DocumentDate),
 		Amount:           item.Amount,
 		Currency:         item.CurrencyCode,
 		Direction:        mapPaymentDirection(item.Direction),
