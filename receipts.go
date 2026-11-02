@@ -176,6 +176,16 @@ type Receipt struct {
 	// Sequence is the provider's change sequence of this record (Excellent
 	// Books @sequence), "" when the provider has none.
 	Sequence string
+	// InvoicePrepayment is true for a record that is not a receipt at all: a
+	// prepayment the accountant applied on the invoice itself (an Excellent
+	// Books invoice row of type 6, "Ettemaks"), returned only when the read
+	// asked for WithInvoicePrepayments. It is shaped as the receipt that would
+	// do the same — the invoice row +X, the prepayment (CUPNr) row −X, Amount
+	// zero — so it classifies as an advance applied. Its ID ("IV<invoice
+	// SerNr>-<CUPNr>") is no IPVc SerNr: it can never be read, reversed or
+	// deleted as a receipt. Draft follows the invoice's OKFlag and Void its
+	// Invalid flag; Date is the invoice's.
+	InvoicePrepayment bool
 }
 
 // CreatedThroughAPI reports whether the provider says the receipt was made

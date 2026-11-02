@@ -211,6 +211,12 @@ type ListInvoiceReceiptsInput struct {
 	// MaxPages caps the read (0 ⇒ 5). A read unfinished at the cap fails rather
 	// than returning a part that looks whole.
 	MaxPages int
+	// WithInvoicePrepayments also returns the prepayments the accountant
+	// applied on the customer's invoices themselves (Excellent Books invoice
+	// rows of type 6), each as a receipt-shaped record with InvoicePrepayment
+	// set, read over the same dates by the invoice's date. Excellent Books
+	// only; it costs one more paged read.
+	WithInvoicePrepayments bool
 }
 
 // PaymentChangesInput asks for every receipt changed (or deleted) in a window.
@@ -231,6 +237,12 @@ type PaymentChangesInput struct {
 	// WithDeletions also asks for the receipts deleted after SinceSequence
 	// (Excellent Books deletes_after). Only meaningful with SinceSequence.
 	WithDeletions bool
+	// WithInvoicePrepayments also returns, in Receipts only, the prepayments
+	// the accountant applied on invoices themselves (Excellent Books invoice
+	// rows of type 6) on invoices dated in the window, each as a
+	// receipt-shaped record with InvoicePrepayment set. Only with the date
+	// window (not SinceSequence); Excellent Books only.
+	WithInvoicePrepayments bool
 }
 
 type ListInvoicesInput struct {

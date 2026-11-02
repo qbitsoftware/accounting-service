@@ -58,6 +58,10 @@ type Invoice struct {
 	URL            string       `json:"@url"`
 	BaseSum4       string       `json:"BaseSum4"`
 	BKEInvSentDate string       `json:"BKEInvSentDate"`
+	// Invalid is the invoice's invalidation flag ("0" for a live invoice).
+	// FlexString so that a number or a boolean there can never fail the
+	// decode of a whole invoice list.
+	Invalid FlexString `json:"Invalid"`
 }
 
 // InvoiceRow represents a line item on an invoice.
@@ -75,6 +79,9 @@ type InvoiceRow struct {
 	UnitCode  string `json:"UnitCode"` // Unit
 	Objects   string `json:"Objects"`  // Cost center / dimension
 	OrdRow    string `json:"OrdRow"`   // Original order row reference
+	// CUPNr is the prepayment (ettemaks) number on a prepayment row (stp 6):
+	// the accountant drew that prepayment onto the invoice, for Sum.
+	CUPNr string `json:"CUPNr"`
 }
 
 // Customer represents a contact (register CUVc).

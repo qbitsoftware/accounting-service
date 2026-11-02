@@ -321,7 +321,9 @@ func (p *excellentProvider) getReceiptRecord(ctx context.Context, op, id string)
 // Excellent Books cannot filter by a row field, so the date window is read in
 // full and filtered here. A read unfinished at MaxPages (0 ⇒ 5) fails with
 // ErrTooManyPages; one whose pages do not join fails with ErrPageShifted.
-// Never a partial list.
+// Never a partial list. WithInvoicePrepayments also reads the customer's
+// invoices over the same dates (filter.CustCode, the same page cap) and adds
+// the prepayments drawn on them — on InvoiceID only, when it is set.
 func (p *excellentProvider) ListInvoiceReceipts(ctx context.Context, input ListInvoiceReceiptsInput) ([]Receipt, error) {
 	const op = "ListInvoiceReceipts"
 	if input.CustomerID == "" {
@@ -343,6 +345,19 @@ func (p *excellentProvider) ListInvoiceReceipts(ctx context.Context, input ListI
 	for _, r := range recs {
 		if ebReceiptTouches(r, input.CustomerID, input.InvoiceID) {
 			out = append(out, mapEBReceipt(r))
+		}
+	}
+	if input.WithInvoicePrepayments {
+		drawn, err := p.readInvoicePrepayments(ctx, map[string]string{"CustCode": input.CustomerID}, since, input.Until, maxPages)
+		if err != nil {
+			return nil, p.wrapError(op, err)
+		}
+		for _, r := range drawn {
+			// The filter is the server's; the customer and invoice are
+			// checked here as for receipts.
+			if r.CustomerID == input.CustomerID && (input.InvoiceID == "" || r.Rows[0].DocID == input.InvoiceID) {
+				out = append(out, r)
+			}
 		}
 	}
 	return out, nil
@@ -390,7 +405,10 @@ func ebReceiptTouches(r excellentbooks.Receipt, customerID, invoiceID string) bo
 // DeletedComplete false, with no error.
 //
 // Receipts are decoded per mapEBReceipt; Payments is ListPayments' projection
-// of the same receipts.
+// of the same receipts. WithInvoicePrepayments (date window only) appends to
+// Receipts the prepayments drawn on invoices dated in the window
+// (readInvoicePrepayments), in a second paged read under the same cap; either
+// read failing fails the call.
 func (p *excellentProvider) ListPaymentChanges(ctx context.Context, input PaymentChangesInput) (*PaymentChanges, error) {
 	const op = "ListPaymentChanges"
 	if input.SinceSequence == "" {
@@ -401,7 +419,17 @@ func (p *excellentProvider) ListPaymentChanges(ctx context.Context, input Paymen
 		if err != nil {
 			return nil, p.wrapError(op, err)
 		}
-		return ebPaymentChanges(recs, seq), nil
+		out := ebPaymentChanges(recs, seq)
+		if input.WithInvoicePrepayments {
+			// Receipts only: Payments stays ListPayments' projection of the
+			// receipts, which these records are not.
+			drawn, err := p.readInvoicePrepayments(ctx, nil, input.Since, input.Until, ebChangeMaxPages)
+			if err != nil {
+				return nil, p.wrapError(op, err)
+			}
+			out.Receipts = append(out.Receipts, drawn...)
+		}
+		return out, nil
 	}
 
 	recs, seq, err := p.readReceiptFeed(ctx, op, input.SinceSequence)
