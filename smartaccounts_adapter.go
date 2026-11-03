@@ -16,7 +16,25 @@ import (
 // smartProvider implements Provider using the SmartAccounts API.
 type smartProvider struct {
 	client *smartaccounts.Client
+	// signedCredits sends a credit invoice the way SmartAccounts makes one
+	// itself: each row's sign on its quantity, so the document totals negative
+	// and lowers the customer's balance, and nets it against its original in
+	// SmartAccounts' own shape (NetInvoiceAgainstCredit). Off, a credit invoice
+	// goes with positive rows — SmartAccounts stores those as a POSITIVE credit
+	// invoice that adds to what the customer owes — and is netted with both rows
+	// positive. Opt-in (SmartAccountsCreditRows) because companies already hold
+	// credits in the old shape and their netting has been set up around it.
+	signedCredits bool
 }
+
+// SmartAccountsCreditRows is the Config.Extra key that selects how a
+// SmartAccounts credit invoice is sent; SmartAccountsCreditRowsSigned is the
+// value that turns signed credit invoices on. Absent or anything else is the
+// wire every caller sent before the switch existed.
+const (
+	SmartAccountsCreditRows       = "credit_rows"
+	SmartAccountsCreditRowsSigned = "signed"
+)
 
 // smartProvider additionally implements the optional InvoiceDateEditor
 // capability — SmartAccounts is the only provider that can safely re-date an
@@ -33,6 +51,7 @@ func newSmartAccountsProvider(cfg Config) *smartProvider {
 			NettingBank: cfg.Extra["netting_bank"], // empty disables auto-settle on credit notes
 			HTTPClient:  cfg.HTTPClient,
 		}),
+		signedCredits: cfg.Extra[SmartAccountsCreditRows] == SmartAccountsCreditRowsSigned,
 	}
 }
 
@@ -77,6 +96,27 @@ func buildSARows(lines []CreateInvoiceLineInput) []smartaccounts.InvoiceRowInput
 		}
 	}
 	return rows
+}
+
+// saSignedCreditRows puts each credit row's sign on its quantity with a
+// positive price, the shape SmartAccounts writes itself: a fee reversed is
+// -1 x 50, a discount reversed is +1 x 5. The row's value (quantity x price) is
+// unchanged, so the document still totals what the credit note does. A row worth
+// nothing keeps the quantity it came with.
+func saSignedCreditRows(rows []smartaccounts.InvoiceRowInput) []smartaccounts.InvoiceRowInput {
+	out := make([]smartaccounts.InvoiceRowInput, len(rows))
+	for i, r := range rows {
+		value := r.Quantity.Mul(r.Price)
+		if !value.IsZero() {
+			r.Quantity = r.Quantity.Abs()
+			if value.IsNegative() {
+				r.Quantity = r.Quantity.Neg()
+			}
+			r.Price = r.Price.Abs()
+		}
+		out[i] = r
+	}
+	return out
 }
 
 func totalPtr(d decimal.Decimal) *decimal.Decimal {
@@ -194,12 +234,21 @@ func (p *smartProvider) CreateCreditNote(ctx context.Context, input CreateCredit
 	}
 
 	// The caller hands us credit-note-convention lines (Merit shape): quantity
-	// already negated and price negated to positive. SmartAccounts marks the
-	// credit via Type=CRE and expects ordinary positive rows, so we negate the
-	// quantity back to positive (the price is already positive).
+	// already negated and price negated to positive.
 	rows := buildSARows(input.Lines)
-	for i := range rows {
-		rows[i].Quantity = rows[i].Quantity.Neg()
+	if p.signedCredits {
+		// SmartAccounts' own credit invoice carries the sign on the quantity
+		// (-1 x 45 = -45): type CRE does not negate the rows, so they have to
+		// say it themselves.
+		rows = saSignedCreditRows(rows)
+	} else {
+		// The original wire: the quantity negated back to positive. SmartAccounts
+		// stores this as a credit invoice of +45 — it adds to the customer's
+		// balance instead of cancelling the original (verified 03.11.2026). Kept
+		// byte for byte for callers that have not opted in.
+		for i := range rows {
+			rows[i].Quantity = rows[i].Quantity.Neg()
+		}
 	}
 
 	req := smartaccounts.CreateInvoiceRequest{
@@ -306,7 +355,11 @@ func (p *smartProvider) autoSettleCreditNote(ctx context.Context, resp *smartacc
 	if orig.OutstandingAmount.LessThan(settle) {
 		settle = orig.OutstandingAmount
 	}
-	pay, err := p.client.SettleInvoiceAgainstCredit(ctx, resp.ClientID, originalID, resp.InvoiceID, settle, input.Currency, saFormatDate(input.DocDate))
+	net := p.client.SettleInvoiceAgainstCredit
+	if p.signedCredits {
+		net = p.client.NetInvoiceAgainstCredit
+	}
+	pay, err := net(ctx, resp.ClientID, originalID, resp.InvoiceID, settle, input.Currency, saFormatDate(input.DocDate))
 	if err != nil {
 		slog.Error("smartaccounts: credit note created but auto-settle FAILED — please settle manually in SA UI",
 			"credit_id", resp.InvoiceID, "original_id", originalID, "settle_amount", settle.String(), "error", err)

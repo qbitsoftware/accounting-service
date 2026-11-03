@@ -84,11 +84,11 @@ const NettingComment = "auto-settle credit against original"
 
 // SettleInvoiceAgainstCredit posts a netting payment that closes an original
 // client invoice against a linked credit invoice, applying `settle` to each
-// side. Both row amounts are sent POSITIVE: SA validates each row against its
-// invoice's outstanding using magnitude, and rejects negative-row attempts on
-// credits ("payment amount larger than outstanding amount on row"). The total
-// payment.amount is 2 × settle, conceptually +settle in from the original
-// payer and +settle out to the credit recipient — net zero on the netting bank.
+// side. Both row amounts are sent POSITIVE and payment.amount is 2 × settle.
+// That is the shape a credit invoice sent with positive rows needs — such a
+// credit is stored at +settle outstanding, so a negative row on it is refused
+// ("payment amount larger than outstanding amount on row"). A credit invoice
+// with signed rows is netted with NetInvoiceAgainstCredit instead.
 //
 // Caller must have c.NettingBank() configured; otherwise this returns an error.
 // The two invoices must be for the same client and currency.
@@ -114,6 +114,37 @@ func (c *Client) SettleInvoiceAgainstCredit(ctx context.Context, clientID, origi
 		},
 	}
 	return c.CreatePayment(ctx, req)
+}
+
+// NetInvoiceAgainstCredit closes an original client invoice against a linked
+// credit invoice whose rows are signed (total and outstanding negative), in the
+// shape SmartAccounts writes itself when a credit invoice saved in its own screen
+// is netted (recorded 03.11.2026 against a test company): payment.amount 0, the
+// original's row +settle and the credit's row -settle, through the netting
+// bank. Nothing moves in that bank; both documents close.
+//
+// Caller must have c.NettingBank() configured; otherwise this returns an error.
+func (c *Client) NetInvoiceAgainstCredit(ctx context.Context, clientID, originalID, creditID string, settle decimal.Decimal, currency, date string) (*PaymentResponse, error) {
+	if c.nettingBank == "" {
+		return nil, fmt.Errorf("smartaccounts: NettingBank not configured; cannot auto-settle")
+	}
+	if !settle.IsPositive() {
+		return nil, fmt.Errorf("smartaccounts: settle amount must be positive, got %s", settle)
+	}
+	return c.CreatePayment(ctx, CreatePaymentRequest{
+		Date:        date,
+		PartnerType: PartnerClient,
+		ClientID:    clientID,
+		AccountType: AccountBank,
+		AccountName: c.nettingBank,
+		Currency:    currency,
+		Amount:      decimal.Zero,
+		Comment:     NettingComment,
+		Rows: []PaymentRow{
+			{Type: RowClientInvoice, ID: originalID, Amount: settle},
+			{Type: RowClientInvoice, ID: creditID, Amount: settle.Neg()},
+		},
+	})
 }
 
 // DeletePayment deletes a payment by ID. SA's :delete wants id in the URL query
