@@ -77,6 +77,7 @@ func (p *directoProvider) CreateInvoice(ctx context.Context, input CreateInvoice
 		Comment:       input.Comment,
 		PaymentTerm:   input.PaymentTermCode,
 		Confirm:       directoConfirmFlag(input.AutoConfirm),
+		RIKEInvoice:   directoRIKEInvoiceFlag(input.SuppressEInvoice),
 		Email:         input.CustomerEmail,
 		Address1:      input.CustomerAddress,
 		CustomerRegNo: input.CustomerRegNo,
@@ -449,6 +450,7 @@ func (p *directoProvider) CreateCreditNote(ctx context.Context, input CreateCred
 		Comment:      input.Comment,
 		PaymentTerm:  input.PaymentTermCode,
 		Confirm:      "1",
+		RIKEInvoice:  directoRIKEInvoiceFlag(input.SuppressEInvoice),
 		// Link the credit note to the invoice it reduces (UI "Kred. arve") so it
 		// offsets the original instead of floating as a standalone negative.
 		CreditedInvoice: input.OriginalInvoiceNo,
@@ -767,6 +769,16 @@ func mapDirectoItemType(class string) ItemType {
 // "1" confirms the invoice immediately; empty string leaves it as a draft
 // that can be deleted from the Directo UI — important when we want a
 // revert path that doesn't require issuing a credit note.
+// directoRIKEInvoiceFlag renders the rikeinvoice attribute. Unset leaves
+// Directo's own default (send), so only an explicit suppression goes on the
+// wire — an empty attribute is not the same as "0".
+func directoRIKEInvoiceFlag(suppress bool) string {
+	if suppress {
+		return "0"
+	}
+	return ""
+}
+
 func directoConfirmFlag(autoConfirm bool) string {
 	if autoConfirm {
 		return "1"

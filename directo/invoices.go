@@ -40,6 +40,11 @@ type InvoiceXML struct {
 	PaymentTerm  string             `xml:"paymentterm,attr,omitempty"`  // XSD: paymentterm
 	PaymentTotal string             `xml:"paymenttotal,attr,omitempty"` // positive = auto-create receipt
 	Confirm      string             `xml:"confirm,attr,omitempty"`      // XSD: confirm (was confirmed), "1" = confirm
+	// RIKEInvoice is the document's "Send automatic RIK e-invoice" switch
+	// (XSD: rikeinvoice, SQL: eak_invoice). Omitted, Directo defaults it to
+	// yes, so confirming the invoice e-invoices any customer reachable through
+	// the RIK operator. "0" = do not send, "1" = send.
+	RIKEInvoice  string             `xml:"rikeinvoice,attr,omitempty"`
 
 	// Inline customer details — see struct doc comment.
 	Email        string `xml:"email,attr,omitempty"`
