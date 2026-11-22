@@ -294,6 +294,10 @@ func (p *meritProvider) GetCustomer(_ context.Context, _ string) (*Customer, err
 }
 
 func (p *meritProvider) FindCustomerByEmail(ctx context.Context, email string) (*Customer, error) {
+	if strings.TrimSpace(email) == "" {
+		// "" is every customer without an address, not one of them.
+		return nil, &ProviderError{Provider: "merit", Op: "FindCustomerByEmail", Err: ErrNotFound}
+	}
 	items, err := p.client.ListCustomers(ctx, merit.ListCustomersParams{})
 	if err != nil {
 		return nil, p.wrapError("FindCustomerByEmail", err)

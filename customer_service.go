@@ -1,6 +1,9 @@
 package accounting
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 type CustomerService struct {
 	provider Provider
@@ -28,6 +31,15 @@ func (s *CustomerService) Get(ctx context.Context, id string) (*Customer, error)
 // otherwise creates a new customer with the provided input.
 // If the existing customer has a blank or email-fallback name, it updates it.
 func (s *CustomerService) FindOrCreate(ctx context.Context, email string, input CreateCustomerInput) (*Customer, error) {
+	// No address is no key. Looked up, "" matched whichever customer of the
+	// company has no e-mail (Merit: the first one listed), and the document
+	// was booked to that stranger — a walk-in buyer's sale landed on an
+	// unrelated company in the Merit test company, 22.11.2026. Create
+	// instead; FindOrCreateCustomerWithFallback then matches an existing card
+	// by registry code or name if the provider says it exists.
+	if strings.TrimSpace(email) == "" {
+		return s.provider.CreateCustomer(ctx, input)
+	}
 	existing, err := s.provider.FindCustomerByEmail(ctx, email)
 	if err != nil && !IsNotFound(err) {
 		return nil, err
