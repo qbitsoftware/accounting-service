@@ -94,6 +94,12 @@ type CreateInvoiceLineInput struct {
 	// sent, which is every caller before the field existed. Merit-only; every
 	// other adapter ignores it.
 	DepartmentCode string
+	// ItemCostAmount is the cost PER UNIT of a stock item (Type 1) going back
+	// into stock on a credit note: Merit refuses a stock row of a credit note
+	// without it ("Laokaubal X peab olema määratud omahind"), and multiplies
+	// it by the quantity (sandbox, 22.11.2026). Zero = not stated, which is
+	// every line before the field existed. Merit-only.
+	ItemCostAmount decimal.Decimal
 }
 
 type CreateCustomerInput struct {

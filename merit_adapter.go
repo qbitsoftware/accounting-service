@@ -59,6 +59,7 @@ func buildRowsAndTaxes(lines []CreateInvoiceLineInput) ([]merit.InvoiceRow, []me
 			ProjectCode:    line.ProjectCode,
 			CostCenterCode: line.CostCenterCode,
 			DepartmentCode: line.DepartmentCode,
+			ItemCostAmount: line.ItemCostAmount,
 		}
 
 		// Populate v2 Dimensions array for proper dimension assignment
@@ -899,6 +900,9 @@ func mapItemListItem(item merit.ItemListItem) Item {
 		Type:          mapMeritItemType(item.Type),
 		UnitOfMeasure: item.UnitOfMeasureName,
 		SalesPrice:    item.SalesPrice,
+		InventoryQty:  item.InventoryQty,
+		ReservedQty:   item.ReservedQty,
+		UnitCost:      item.ItemUnitCost,
 	}
 }
 

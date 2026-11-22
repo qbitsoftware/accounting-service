@@ -203,6 +203,12 @@ type Item struct {
 	UnitOfMeasure string          `json:"unit_of_measure"`
 	SalesPrice    decimal.Decimal `json:"sales_price"`
 	TaxID         string          `json:"tax_id"`
+	// Stock (Merit, Type "stock" items): what the program holds in stock,
+	// what is reserved of it, and the current cost of one unit. Zero for every
+	// other provider and every non-stock item.
+	InventoryQty decimal.Decimal `json:"inventory_qty"`
+	ReservedQty  decimal.Decimal `json:"reserved_qty"`
+	UnitCost     decimal.Decimal `json:"unit_cost"`
 }
 
 type PurchaseInvoice struct {
