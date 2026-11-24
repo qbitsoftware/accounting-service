@@ -145,3 +145,57 @@ func TestDirectoCreateCreditNoteMirrorsCountryAndZone(t *testing.T) {
 		t.Errorf("credit note XML missing vatzone=\"1\":\n%s", *captured)
 	}
 }
+
+// Directo e-invoices every confirmed invoice through the RIK operator unless
+// the document says otherwise, and its default when the attribute is absent is
+// YES. So an unset flag must leave the attribute off (Directo's own behaviour,
+// unchanged for every other caller) and a suppression must send an explicit
+// "0" — an empty value is not a "no".
+func TestDirectoCreateInvoiceLeavesRIKEInvoiceUnsetByDefault(t *testing.T) {
+	p, captured := captureDirecto(t)
+
+	if _, err := p.CreateInvoice(context.Background(), baseInvoiceInput()); err != nil {
+		t.Fatalf("CreateInvoice: %v", err)
+	}
+	if strings.Contains(*captured, "rikeinvoice") {
+		t.Errorf("rikeinvoice sent without SuppressEInvoice:\n%s", *captured)
+	}
+}
+
+func TestDirectoCreateInvoiceSuppressesRIKEInvoice(t *testing.T) {
+	p, captured := captureDirecto(t)
+
+	in := baseInvoiceInput()
+	in.SuppressEInvoice = true
+	if _, err := p.CreateInvoice(context.Background(), in); err != nil {
+		t.Fatalf("CreateInvoice: %v", err)
+	}
+	if !strings.Contains(*captured, `rikeinvoice="0"`) {
+		t.Errorf(`expected rikeinvoice="0" on the invoice:\n%s`, *captured)
+	}
+}
+
+func TestDirectoCreateCreditNoteSuppressesRIKEInvoice(t *testing.T) {
+	p, captured := captureDirecto(t)
+
+	_, err := p.CreateCreditNote(context.Background(), CreateCreditNoteInput{
+		InvoiceNo:        "100002",
+		CustomerID:       "CUST1",
+		CustomerName:     "Acme GmbH",
+		DocDate:          time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC),
+		Currency:         "EUR",
+		SuppressEInvoice: true,
+		Lines: []CreateInvoiceLineInput{{
+			Code:      "MEMBERSHIP",
+			Quantity:  decimal.NewFromInt(1),
+			UnitPrice: decimal.NewFromFloat(80.65),
+			TaxID:     "24",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateCreditNote: %v", err)
+	}
+	if !strings.Contains(*captured, `rikeinvoice="0"`) {
+		t.Errorf(`expected rikeinvoice="0" on the credit note:\n%s`, *captured)
+	}
+}

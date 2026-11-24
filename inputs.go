@@ -57,6 +57,14 @@ type CreateInvoiceInput struct {
 	Comment       string
 	FooterComment string
 	AutoConfirm   bool // If true, sets OKFlag=1 on the invoice (confirms immediately)
+	// SuppressEInvoice asks the provider not to e-invoice this document on
+	// its own. Directo sends every confirmed invoice through the RIK
+	// e-invoice operator to any customer that can receive one unless the
+	// invoice says otherwise (rikeinvoice, default yes), so a caller that has
+	// already delivered the invoice — or already collected the money — would
+	// otherwise have the customer billed a second time. False = provider
+	// default. Directo-only; every other adapter ignores it.
+	SuppressEInvoice bool
 	// PaymentTermCode references a code in the provider's payment-term register
 	// (Directo maksetingimus). Forwarded as the invoice's paymentterm attribute.
 	// When empty the provider falls back to the customer's default term — which
@@ -329,6 +337,10 @@ type CreateCreditNoteInput struct {
 	Comment           string
 	FooterComment     string
 	OriginalInvoiceNo string
+	// SuppressEInvoice mirrors CreateInvoiceInput.SuppressEInvoice. A credit
+	// note e-invoiced to a customer who never received the original reads as
+	// money owed back to them. Directo-only.
+	SuppressEInvoice bool
 	// PaymentTermCode references a code in the provider's payment-term
 	// register (Excellent Books PDVc; e.g. "K" for cash). When set, the
 	// adapter forwards it as the invoice's PayDeal field. When empty, the
